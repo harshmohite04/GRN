@@ -1212,6 +1212,42 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
         )}
       </div>
 
+      {/* MINIMAL FOOTER FOR WORKSPACE */}
+      <footer style={{
+        marginTop: 48,
+        paddingTop: 24,
+        borderTop: "1px solid #e2e8f0",
+        textAlign: "center",
+        color: "var(--text-muted)",
+        fontSize: "0.8rem",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        alignItems: "center",
+        marginBottom: 20
+      }}>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "16px", alignItems: "center" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#4f46e5" }}>
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            <strong>Developer:</strong> Harsh
+          </span>
+          <span style={{ color: "#cbd5e1" }}>|</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#10b981" }}>
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+            </svg>
+            <strong>Contact &amp; Support:</strong>{" "}
+            <a href="tel:+919356836581" style={{ color: "var(--text-secondary)", textDecoration: "none", fontWeight: 600 }}>
+              +91 9356836581
+            </a>
+          </span>
+        </div>
+        <p style={{ fontSize: "0.74rem", margin: 0 }}>© {new Date().getFullYear()} GRN Automation. All rights reserved.</p>
+      </footer>
+
       {/* Sticky bottom bar — fixed on mobile */}
       <div className="sticky-bar">
         <button className="btn-secondary" onClick={onReset}>
