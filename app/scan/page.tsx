@@ -140,6 +140,275 @@ export default function ScanPage() {
   const [docLanguage, setDocLanguage] = useState("en-IN");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Authentication & Trial States
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [trialCount, setTrialCount] = useState(0);
+  const [trialsLeft, setTrialsLeft] = useState(10);
+  const [allowedScans, setAllowedScans] = useState(10);
+
+  // Billing Modal & Checkout States
+  const [showBillingModal, setShowBillingModal] = useState(false);
+  const [customDocCount, setCustomDocCount] = useState<string>("10");
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<string | null>(null);
+
+  // Mock Payment Flow States
+  const [showMockPaymentDialog, setShowMockPaymentDialog] = useState(false);
+  const [mockPaymentOrderData, setMockPaymentOrderData] = useState<any>(null);
+
+  // Auth Modal Form States
+  const [authEmail, setAuthEmail] = useState("");
+  const [authOtp, setAuthOtp] = useState("");
+  const [authStep, setAuthStep] = useState<"email" | "otp">("email");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [mockOtpInfo, setMockOtpInfo] = useState<string | null>(null);
+
+  const checkSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/session");
+      const data = await res.json();
+      if (data.authenticated) {
+        setAuthenticated(true);
+        setUserEmail(data.email);
+        setTrialCount(data.trialCount);
+        setTrialsLeft(data.trialsLeft);
+        setAllowedScans(data.allowedScans ?? 10);
+      } else {
+        setAuthenticated(false);
+        setUserEmail("");
+      }
+    } catch (err) {
+      console.error("Session check failed:", err);
+    } finally {
+      setSessionChecked(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkSession();
+  }, [checkSession]);
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail || !authEmail.includes("@")) {
+      setAuthError("Please enter a valid email address");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    setMockOtpInfo(null);
+    try {
+      const res = await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to send verification code");
+      }
+      setAuthStep("otp");
+      if (data.isMock && data.mockOtp) {
+        setMockOtpInfo(data.mockOtp);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Failed to request code");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authOtp || authOtp.length !== 6) {
+      setAuthError("Please enter the 6-digit verification code");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail, otp: authOtp }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Verification failed");
+      }
+      setAuthenticated(true);
+      setUserEmail(data.email);
+      setTrialCount(data.trialCount);
+      setTrialsLeft(data.trialsLeft);
+      setAllowedScans(data.allowedScans ?? 10);
+      setAuthEmail("");
+      setAuthOtp("");
+      setAuthStep("email");
+      setMockOtpInfo(null);
+    } catch (err: any) {
+      setAuthError(err.message || "Failed to verify code");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/session", { method: "POST" });
+      setAuthenticated(false);
+      setUserEmail("");
+      setTrialCount(0);
+      setTrialsLeft(10);
+      setAllowedScans(10);
+      handleReset();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+  };
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handlePayment = async (docCount: number) => {
+    if (docCount <= 0) {
+      alert("Please enter a valid document count.");
+      return;
+    }
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ docCount }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to initiate payment");
+      }
+
+      if (data.mock) {
+        // High fidelity sandbox checkout simulation
+        setMockPaymentOrderData({ ...data, docCount });
+        setShowMockPaymentDialog(true);
+        setCheckoutLoading(false);
+        return;
+      }
+
+      // Load Razorpay script
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        alert("Failed to load payment gateway script. Please check your internet connection.");
+        setCheckoutLoading(false);
+        return;
+      }
+
+      const options = {
+        key: data.keyId,
+        amount: data.amount,
+        currency: data.currency,
+        name: "Acme Document Suite",
+        description: `Upgrade scanner capacity by ${docCount} documents`,
+        order_id: data.orderId,
+        handler: async function (response: any) {
+          try {
+            setCheckoutLoading(true);
+            const verifyRes = await fetch("/api/payments/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+                docCount: docCount,
+              }),
+            });
+            const verifyData = await verifyRes.json();
+            if (verifyData.success) {
+              setAllowedScans(verifyData.allowedScans);
+              setTrialsLeft(verifyData.trialsLeft);
+              setPaymentSuccessMessage(`Successfully upgraded your scanner capacity by ${docCount} documents!`);
+              setShowBillingModal(false);
+              setTimeout(() => {
+                setPaymentSuccessMessage(null);
+              }, 6000);
+            } else {
+              alert(verifyData.error || "Payment verification failed.");
+            }
+          } catch (err) {
+            console.error("Verification error:", err);
+            alert("An error occurred during payment verification.");
+          } finally {
+            setCheckoutLoading(false);
+          }
+        },
+        prefill: {
+          email: data.email,
+        },
+        theme: {
+          color: "#4f46e5",
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      alert(err.message || "An error occurred initiating checkout.");
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
+  const handleMockVerify = async () => {
+    if (!mockPaymentOrderData) return;
+    setCheckoutLoading(true);
+    try {
+      const verifyRes = await fetch("/api/payments/verify-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 12)}`,
+          razorpay_order_id: mockPaymentOrderData.orderId,
+          razorpay_signature: "mock_signature",
+          docCount: mockPaymentOrderData.docCount,
+        }),
+      });
+      const verifyData = await verifyRes.json();
+      if (verifyData.success) {
+        setAllowedScans(verifyData.allowedScans);
+        setTrialsLeft(verifyData.trialsLeft);
+        setPaymentSuccessMessage(`[SANDBOX] Successfully simulated upgrade for ${mockPaymentOrderData.docCount} documents!`);
+        setShowMockPaymentDialog(false);
+        setShowBillingModal(false);
+        setTimeout(() => {
+          setPaymentSuccessMessage(null);
+        }, 6000);
+      } else {
+        alert(verifyData.error || "Payment simulation verification failed.");
+      }
+    } catch (err) {
+      console.error("Mock verification error:", err);
+      alert("An error occurred during simulation verification.");
+    } finally {
+      setCheckoutLoading(false);
+      setMockPaymentOrderData(null);
+    }
+  };
+
+
   const handleFile = (f: File) => {
     setError(null); setFile(f);
     if (f.type.startsWith("image/")) setPreview(URL.createObjectURL(f));
@@ -172,6 +441,14 @@ export default function ScanPage() {
       if (!ocrRes.ok || !ocrJson.success) throw new Error(ocrJson.error || "Document processing failed");
       
       setRawText(ocrJson.rawText || "");
+      
+      if (typeof ocrJson.trialCount === "number") {
+        setTrialCount(ocrJson.trialCount);
+        setTrialsLeft(ocrJson.trialsLeft);
+        if (typeof ocrJson.allowedScans === "number") {
+          setAllowedScans(ocrJson.allowedScans);
+        }
+      }
       
       // If structured GRN data was returned directly, use it!
       if (ocrJson.grnData) {
@@ -221,11 +498,11 @@ export default function ScanPage() {
             <div style={{ width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg,#4f46e5,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 3px 8px rgba(79,70,229,0.18)" }}>
               <LogoIcon />
             </div>
-            <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "#0f172a" }}>GRN Automation</span>
+            <span className="nav-title" style={{ fontWeight: 700, fontSize: "0.9rem", color: "#0f172a" }}>GRN Automation</span>
           </a>
 
           {/* Step indicators */}
-          <div className="steps-list">
+          <div className="steps-list desktop-nav-links">
             {STEPS.map((s, i) => (
               <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <div
@@ -254,6 +531,89 @@ export default function ScanPage() {
               </div>
             ))}
           </div>
+
+          {/* Trial Status Navbar Badge */}
+          {authenticated && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span
+                className={`badge ${
+                  trialCount >= allowedScans
+                    ? "badge-error"
+                    : trialCount >= allowedScans - 1
+                    ? "badge-warning"
+                    : "badge-info"
+                }`}
+                style={{
+                  fontWeight: 600,
+                  fontSize: "0.76rem",
+                  padding: "4px 10px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  animation: trialCount >= allowedScans - 1 && trialCount < allowedScans ? "pulse 1.2s infinite" : "none"
+                }}
+              >
+                {trialCount >= allowedScans ? (
+                  <>
+                    <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent-rose)" }} />
+                    Limit Reached
+                  </>
+                ) : (
+                  <>
+                    <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: trialCount >= allowedScans - 1 ? "var(--accent-amber)" : "var(--accent-primary)" }} />
+                    <span className="badge-text-long">Usage: {trialCount}/{allowedScans} scans</span>
+                    <span className="badge-text-short">{trialCount}/{allowedScans}</span>
+                  </>
+                )}
+              </span>
+
+              <button
+                onClick={() => setShowBillingModal(true)}
+                className="btn-primary"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  boxShadow: "0 2px 6px rgba(79, 70, 229, 0.15)"
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Upgrade
+              </button>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="desktop-nav-links" style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 500 }} title={userEmail}>
+                  {userEmail.length > 15 ? userEmail.slice(0, 13) + "..." : userEmail}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="btn-ghost"
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "0.74rem",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    color: "var(--text-secondary)",
+                    cursor: "pointer"
+                  }}
+                  title="Log Out"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+                  </svg>
+                  <span className="logout-text">Logout</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -289,6 +649,14 @@ export default function ScanPage() {
             onCameraCapture={handleFile}
             docLanguage={docLanguage}
             setDocLanguage={setDocLanguage}
+            trialCount={trialCount}
+            userEmail={userEmail}
+            handleLogout={handleLogout}
+            allowedScans={allowedScans}
+            handlePayment={handlePayment}
+            checkoutLoading={checkoutLoading}
+            customDocCount={customDocCount}
+            setCustomDocCount={setCustomDocCount}
           />
         )}
         {step === "processing" && <ProcessingStep message={processingMsg} />}
@@ -301,13 +669,472 @@ export default function ScanPage() {
           />
         )}
       </div>
+
+      {/* Solid Enterprise Login Modal Overlay */}
+      {(!sessionChecked || !authenticated) && (
+        <div className="modal-overlay">
+          <div className="modal-card animate-fade-in-up" style={{ maxWidth: 440, padding: "36px 32px" }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{
+                width: 50,
+                height: 50,
+                borderRadius: 14,
+                background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 16px",
+                boxShadow: "0 8px 20px rgba(79, 70, 229, 0.3)"
+              }}>
+                <LogoIcon />
+              </div>
+              <h2 style={{ fontSize: "1.35rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.025em" }}>
+                GRN Document Portal
+              </h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: 6, lineHeight: 1.4 }}>
+                {authStep === "email" ? "Enter your email to verify your trial account" : "Enter the 6-digit verification code sent to your email"}
+              </p>
+            </div>
+
+            {authError && (
+              <div style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                padding: "10px 14px",
+                borderRadius: 10,
+                background: "#fee2e2",
+                border: "1px solid #fca5a5",
+                color: "#991b1b",
+                fontSize: "0.78rem",
+                marginBottom: 16,
+                fontWeight: 500
+              }}>
+                <AlertIcon size={16} />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            {mockOtpInfo && (
+              <div style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: "#ede9fe",
+                border: "1px solid #c4b5fd",
+                color: "#4c1d95",
+                fontSize: "0.78rem",
+                marginBottom: 16,
+                boxShadow: "0 2px 8px rgba(79, 70, 229, 0.05)"
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#4f46e5" }} />
+                  Demo Mode OTP generated:
+                </div>
+                <p style={{ fontSize: "0.76rem", color: "#6d28d9", lineHeight: 1.4, margin: 0 }}>
+                  No email service configured. Use code: <strong style={{ fontSize: "0.95rem", fontFamily: "monospace", background: "#fff", padding: "1px 5px", borderRadius: 4, border: "1px solid #c4b5fd", margin: "0 2px" }}>{mockOtpInfo}</strong> to log in.
+                </p>
+              </div>
+            )}
+
+            {authStep === "email" ? (
+              <form onSubmit={handleSendOtp} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <label className="input-label" htmlFor="auth-email">Email Address</label>
+                  <input
+                    id="auth-email"
+                    type="email"
+                    placeholder="e.g. name@company.com"
+                    className="input-field"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    disabled={authLoading}
+                    required
+                    autoFocus
+                    style={{ padding: "11px 14px", borderRadius: 10 }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={authLoading}
+                  style={{ width: "100%", justifyContent: "center", padding: "12px", borderRadius: 10, fontSize: "0.85rem" }}
+                >
+                  {authLoading ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "#fff", animation: "spin 0.6s linear infinite" }} />
+                      Sending code...
+                    </div>
+                  ) : "Request Verification Code"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyOtp} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <label className="input-label" htmlFor="auth-otp">6-Digit Verification Code</label>
+                  <input
+                    id="auth-otp"
+                    type="text"
+                    placeholder="e.g. 123456"
+                    className="input-field"
+                    value={authOtp}
+                    onChange={(e) => setAuthOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    disabled={authLoading}
+                    maxLength={6}
+                    required
+                    autoFocus
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      textAlign: "center",
+                      fontSize: "1.1rem",
+                      letterSpacing: "0.2em",
+                      fontWeight: "bold",
+                      fontFamily: "monospace"
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={authLoading}
+                  style={{ width: "100%", justifyContent: "center", padding: "12px", borderRadius: 10, fontSize: "0.85rem" }}
+                >
+                  {authLoading ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "#fff", animation: "spin 0.6s linear infinite" }} />
+                      Verifying...
+                    </div>
+                  ) : "Verify & Log In"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => {
+                    setAuthStep("email");
+                    setAuthOtp("");
+                    setAuthError(null);
+                    setMockOtpInfo(null);
+                  }}
+                  disabled={authLoading}
+                  style={{ fontSize: "0.8rem", textDecoration: "underline", color: "#64748b", margin: "0 auto" }}
+                >
+                  Change Email
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Solid Billing & Upgrades Modal */}
+      {showBillingModal && (
+        <div className="modal-overlay">
+          <div className="modal-card animate-fade-in-up" style={{ maxWidth: 680, padding: "36px 32px", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+              <div>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.025em" }}>
+                  Upgrade Scanner Capacity
+                </h2>
+                <p style={{ color: "#64748b", fontSize: "0.78rem", marginTop: 4 }}>
+                  Add permanent scanning capacity. Current usage: <strong>{trialCount}/{allowedScans}</strong> scans
+                </p>
+              </div>
+              <button
+                onClick={() => setShowBillingModal(false)}
+                className="btn-ghost"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid #cbd5e1",
+                  cursor: "pointer"
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 16,
+              marginBottom: 24
+            }}>
+              {[
+                { name: "Bronze Pass", count: 10, price: 120, label: "Starter" },
+                { name: "Silver Pass", count: 50, price: 600, label: "Popular", popular: true },
+                { name: "Gold Pass", count: 100, price: 1200, label: "Value" }
+              ].map((pkg) => (
+                <div key={pkg.name} style={{
+                  background: pkg.popular ? "rgba(79, 70, 229, 0.04)" : "#ffffff",
+                  border: pkg.popular ? "2px solid #4f46e5" : "1.5px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: "20px 14px",
+                  textAlign: "center",
+                  position: "relative",
+                  boxShadow: pkg.popular ? "0 8px 24px rgba(79, 70, 229, 0.08)" : "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between"
+                }}>
+                  {pkg.popular && (
+                    <span style={{
+                      position: "absolute",
+                      top: -12,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
+                      color: "#ffffff",
+                      fontSize: "0.6rem",
+                      fontWeight: 800,
+                      padding: "2px 8px",
+                      borderRadius: 8,
+                      textTransform: "uppercase"
+                    }}>
+                      Popular
+                    </span>
+                  )}
+                  <div>
+                    <h3 style={{ fontSize: "0.88rem", fontWeight: 700, color: "#0f172a", marginBottom: 2 }}>{pkg.name}</h3>
+                    <div style={{ fontSize: "0.7rem", color: "#64748b", marginBottom: 8 }}>{pkg.label} Pack</div>
+                    <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#0f172a", margin: "8px 0" }}>
+                      ₹{pkg.price}
+                    </div>
+                    <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "#4f46e5", marginBottom: 12 }}>
+                      +{pkg.count} Document Scans
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handlePayment(pkg.count)}
+                    disabled={checkoutLoading}
+                    className="btn-primary"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      fontSize: "0.78rem",
+                      justifyContent: "center"
+                    }}
+                  >
+                    Buy Pack
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Custom Input Block */}
+            <div style={{
+              background: "#f8fafc",
+              border: "1px dashed #cbd5e1",
+              borderRadius: 16,
+              padding: "16px 20px",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              textAlign: "left"
+            }}>
+              <div>
+                <h4 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#0f172a", marginBottom: 2 }}>Custom Upgrade</h4>
+                <p style={{ fontSize: "0.72rem", color: "#64748b", margin: 0 }}>Buy any exact scan quantity at ₹12/scan</p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customDocCount}
+                    onChange={(e) => setCustomDocCount(e.target.value)}
+                    style={{
+                      width: 80,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1.5px solid #cbd5e1",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                      outline: "none"
+                    }}
+                  />
+                  <span style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: "0.68rem",
+                    fontWeight: 700,
+                    color: "#94a3b8"
+                  }}>
+                    docs
+                  </span>
+                </div>
+                <button
+                  onClick={() => handlePayment(parseInt(customDocCount) || 0)}
+                  disabled={checkoutLoading}
+                  className="btn-primary"
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    fontSize: "0.8rem",
+                    boxShadow: "0 4px 12px rgba(79, 70, 229, 0.2)"
+                  }}
+                >
+                  Pay ₹{(parseInt(customDocCount) || 0) * 12}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* High Fidelity Developer/Demo Mock Payment Dialog */}
+      {showMockPaymentDialog && mockPaymentOrderData && (
+        <div className="modal-overlay">
+          <div className="modal-card animate-fade-in-up" style={{ maxWidth: 480, padding: "36px 32px", textAlign: "center", border: "2px solid var(--accent-primary)" }}>
+            <div style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: "rgba(79, 70, 229, 0.1)",
+              border: "2px solid #4f46e5",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 20px"
+            }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="2" ry="2" />
+                <line x1="2" y1="10" x2="22" y2="10" />
+              </svg>
+            </div>
+            
+            <span style={{
+              background: "#e0e7ff",
+              color: "#4f46e5",
+              fontSize: "0.68rem",
+              fontWeight: 800,
+              padding: "4px 10px",
+              borderRadius: 12,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              display: "inline-block",
+              marginBottom: 12
+            }}>
+              Payment Sandbox Simulation
+            </span>
+
+            <h3 style={{ fontSize: "1.3rem", fontWeight: 800, color: "#0f172a", marginBottom: 6 }}>
+              Authorize Simulated Checkout
+            </h3>
+            
+            <p style={{ color: "#64748b", fontSize: "0.82rem", lineHeight: 1.5, margin: "0 auto 24px", maxWidth: 360 }}>
+              Acme Suite has initialized a local verification workflow. No actual bank charge will occur.
+            </p>
+
+            <div style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: 16,
+              padding: "16px 20px",
+              textAlign: "left",
+              marginBottom: 28,
+              fontSize: "0.82rem"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ color: "#64748b" }}>Order Reference</span>
+                <span style={{ fontWeight: 600, color: "#0f172a", fontFamily: "monospace" }}>
+                  {mockPaymentOrderData.orderId.slice(0, 16)}...
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ color: "#64748b" }}>Upgrade Count</span>
+                <span style={{ fontWeight: 700, color: "#4f46e5" }}>+{mockPaymentOrderData.docCount} scans</span>
+              </div>
+              <div style={{ borderTop: "1px solid #e2e8f0", margin: "10px 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "0.88rem" }}>
+                <span style={{ color: "#0f172a" }}>Simulated Price</span>
+                <span style={{ color: "#10b981" }}>₹{mockPaymentOrderData.docCount * 12}.00</span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                onClick={handleMockVerify}
+                disabled={checkoutLoading}
+                className="btn-primary"
+                style={{
+                  width: "100%",
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  fontSize: "0.88rem",
+                  background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
+                  boxShadow: "0 4px 14px rgba(79, 70, 229, 0.3)",
+                  justifyContent: "center"
+                }}
+              >
+                {checkoutLoading ? "Verifying Transaction..." : "Complete Simulated Checkout"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowMockPaymentDialog(false);
+                  setMockPaymentOrderData(null);
+                }}
+                disabled={checkoutLoading}
+                className="btn-ghost"
+                style={{
+                  width: "100%",
+                  padding: "10px 20px",
+                  borderRadius: 12,
+                  fontSize: "0.85rem",
+                  border: "1px solid #cbd5e1"
+                }}
+              >
+                Cancel Sandbox Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Success Toast Notification */}
+      {paymentSuccessMessage && (
+        <div style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          background: "#10b981",
+          color: "#ffffff",
+          padding: "14px 20px",
+          borderRadius: 12,
+          boxShadow: "0 10px 25px rgba(16, 185, 129, 0.25)",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          zIndex: 10001,
+          fontWeight: 600,
+          fontSize: "0.85rem",
+          animation: "fadeInUp 0.3s ease-out"
+        }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span>{paymentSuccessMessage}</span>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ─── UPLOAD STEP ─── */
 function UploadStep({
-  file, preview, isDragOver, fileInputRef, onDrop, onDragOver, onDragLeave, onFileChange, onExtract, onClear, inputMode, setInputMode, onCameraCapture, docLanguage, setDocLanguage
+  file, preview, isDragOver, fileInputRef, onDrop, onDragOver, onDragLeave, onFileChange, onExtract, onClear, inputMode, setInputMode, onCameraCapture, docLanguage, setDocLanguage,
+  trialCount, userEmail, handleLogout, allowedScans, handlePayment, checkoutLoading, customDocCount, setCustomDocCount
 }: {
   file: File | null; preview: string | null; isDragOver: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -321,6 +1148,14 @@ function UploadStep({
   onCameraCapture: (f: File) => void;
   docLanguage: string;
   setDocLanguage: (l: string) => void;
+  trialCount: number;
+  userEmail: string;
+  handleLogout: () => void;
+  allowedScans: number;
+  handlePayment: (count: number) => Promise<void>;
+  checkoutLoading: boolean;
+  customDocCount: string;
+  setCustomDocCount: (c: string) => void;
 }) {
   const infoItems = [
     {
@@ -360,14 +1195,197 @@ function UploadStep({
 
   return (
     <div className="animate-fade-in-up">
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: "clamp(1.3rem,4vw,1.6rem)", fontWeight: 800, color: "#0f172a", marginBottom: 5 }}>
-          Scan GRN Document
-        </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Upload a file or use your camera to scan a GRN document
-        </p>
-      </div>
+      {trialCount >= allowedScans ? (
+        <div className="card-elevated animate-fade-in-up" style={{
+          padding: "44px 32px",
+          textAlign: "center",
+          background: "linear-gradient(135deg, #ffffff 0%, #fbfcfe 100%)",
+          border: "1.5px solid rgba(79, 70, 229, 0.15)",
+          borderRadius: 20,
+          boxShadow: "0 10px 30px rgba(79, 70, 229, 0.08)",
+          margin: "10px 0"
+        }}>
+          <div style={{
+            width: 64,
+            height: 64,
+            borderRadius: "50%",
+            background: "#fee2e2",
+            border: "2px solid #fca5a5",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 20px",
+            boxShadow: "0 4px 12px rgba(225, 29, 72, 0.15)"
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <h2 style={{ fontSize: "1.35rem", fontWeight: 800, color: "#0f172a", marginBottom: 8, letterSpacing: "-0.025em" }}>
+            Usage Limit Reached
+          </h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", maxWidth: 460, margin: "0 auto 28px", lineHeight: 1.6 }}>
+            You have processed all <strong>{allowedScans} scans</strong> allocated for <span style={{ color: "#4f46e5", fontWeight: 600 }}>{userEmail}</span>. Upgrade instantly to continue processing documents.
+          </p>
+
+          <div style={{
+            margin: "0 auto 32px",
+            maxWidth: 680
+          }}>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: 16,
+              marginBottom: 24
+            }}>
+              {[
+                { name: "Bronze Pass", count: 10, price: 120, label: "Starter" },
+                { name: "Silver Pass", count: 50, price: 600, popular: true, label: "Popular" },
+                { name: "Gold Pass", count: 100, price: 1200, label: "Value" }
+              ].map((pkg) => (
+                <div key={pkg.name} style={{
+                  background: pkg.popular ? "rgba(79, 70, 229, 0.03)" : "#ffffff",
+                  border: pkg.popular ? "2px solid #4f46e5" : "1.5px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: "24px 16px",
+                  textAlign: "center",
+                  position: "relative",
+                  boxShadow: pkg.popular ? "0 8px 24px rgba(79, 70, 229, 0.06)" : "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between"
+                }}>
+                  {pkg.popular && (
+                    <span style={{
+                      position: "absolute",
+                      top: -12,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
+                      color: "#ffffff",
+                      fontSize: "0.62rem",
+                      fontWeight: 800,
+                      padding: "3px 10px",
+                      borderRadius: 10,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em"
+                    }}>
+                      Popular
+                    </span>
+                  )}
+                  <div>
+                    <h3 style={{ fontSize: "0.92rem", fontWeight: 700, color: "#0f172a", marginBottom: 2 }}>{pkg.name}</h3>
+                    <div style={{ fontSize: "0.7rem", color: "#64748b", marginBottom: 12 }}>{pkg.label} Pack</div>
+                    <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "#0f172a", margin: "8px 0" }}>
+                      ₹{pkg.price}
+                    </div>
+                    <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#4f46e5", marginBottom: 16 }}>
+                      +{pkg.count} Document Scans
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handlePayment(pkg.count)}
+                    disabled={checkoutLoading}
+                    className="btn-primary"
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      fontSize: "0.8rem",
+                      justifyContent: "center",
+                      background: pkg.popular ? "linear-gradient(135deg,#4f46e5,#7c3aed)" : "var(--bg-slate-900)"
+                    }}
+                  >
+                    Buy Pack
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Custom Input Block */}
+            <div style={{
+              background: "#f8fafc",
+              border: "1px dashed #cbd5e1",
+              borderRadius: 16,
+              padding: "20px 24px",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              textAlign: "left"
+            }}>
+              <div>
+                <h4 style={{ fontSize: "0.88rem", fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Custom Upgrade</h4>
+                <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>Buy any exact scan quantity at ₹12/scan</p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customDocCount}
+                    onChange={(e) => setCustomDocCount(e.target.value)}
+                    style={{
+                      width: 90,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1.5px solid #cbd5e1",
+                      fontSize: "0.88rem",
+                      fontWeight: 600,
+                      outline: "none"
+                    }}
+                  />
+                  <span style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    color: "#94a3b8"
+                  }}>
+                    docs
+                  </span>
+                </div>
+                <button
+                  onClick={() => handlePayment(parseInt(customDocCount) || 0)}
+                  disabled={checkoutLoading}
+                  className="btn-primary"
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: 10,
+                    fontSize: "0.85rem",
+                    boxShadow: "0 4px 12px rgba(79, 70, 229, 0.2)"
+                  }}
+                >
+                  Pay ₹{(parseInt(customDocCount) || 0) * 12}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
+            <button
+              onClick={handleLogout}
+              className="btn-secondary"
+              style={{ padding: "12px 24px", borderRadius: 10, fontSize: "0.85rem" }}
+            >
+              Log in with another account
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 20 }}>
+            <h1 style={{ fontSize: "clamp(1.3rem,4vw,1.6rem)", fontWeight: 800, color: "#0f172a", marginBottom: 5 }}>
+              Scan GRN Document
+            </h1>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+              Upload a file or use your camera to scan a GRN document
+            </p>
+          </div>
 
       {/* Language selector */}
       <div style={{
@@ -521,6 +1539,8 @@ function UploadStep({
           </div>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -728,21 +1748,16 @@ function CameraCapture({ onCapture, onExtract, capturedFile, capturedPreview, on
           </div>
         )}
 
-        {/* Viewfinder corners — only when live */}
-        {!isLoading && ["tl","tr","bl","br"].map((pos) => (
-          <div key={pos} style={{
-            position: "absolute", width: 26, height: 26,
-            top: pos.startsWith("t") ? 14 : undefined,
-            bottom: pos.startsWith("b") ? 14 : undefined,
-            left: pos.endsWith("l") ? 14 : undefined,
-            right: pos.endsWith("r") ? 14 : undefined,
-            borderTop: pos.startsWith("t") ? "3px solid rgba(255,255,255,0.75)" : undefined,
-            borderBottom: pos.startsWith("b") ? "3px solid rgba(255,255,255,0.75)" : undefined,
-            borderLeft: pos.endsWith("l") ? "3px solid rgba(255,255,255,0.75)" : undefined,
-            borderRight: pos.endsWith("r") ? "3px solid rgba(255,255,255,0.75)" : undefined,
-            borderRadius: pos === "tl" ? "5px 0 0 0" : pos === "tr" ? "0 5px 0 0" : pos === "bl" ? "0 0 0 5px" : "0 0 5px 0",
-          }} />
-        ))}
+        {/* Viewfinder corners & scanline — only when live */}
+        {!isLoading && (
+          <>
+            <div className="viewfinder-scanline" />
+            <div className="viewfinder-corner tl" />
+            <div className="viewfinder-corner tr" />
+            <div className="viewfinder-corner bl" />
+            <div className="viewfinder-corner br" />
+          </>
+        )}
 
         {/* Flip camera button */}
         {!isLoading && (
@@ -764,24 +1779,19 @@ function CameraCapture({ onCapture, onExtract, capturedFile, capturedPreview, on
         <button
           onClick={capturePhoto} id="capture-btn"
           disabled={isLoading}
-          style={{
-            width: 70, height: 70, borderRadius: "50%", border: "4px solid #4f46e5",
-            background: "#fff", cursor: isLoading ? "not-allowed" : "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 18px rgba(79,70,229,0.28)", transition: "transform 0.1s",
-            opacity: isLoading ? 0.5 : 1,
-          }}
+          className="capture-btn-outer"
           onMouseDown={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(0.9)"; }}
           onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           onTouchStart={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(0.9)"; }}
           onTouchEnd={(e) => (e.currentTarget.style.transform = "scale(1)")}
         >
-          <div style={{ width: 48, height: 48, borderRadius: "50%", background: isLoading ? "#cbd5e1" : "linear-gradient(135deg,#4f46e5,#7c3aed)" }} />
+          <div className="capture-btn-inner" style={{ background: isLoading ? "#cbd5e1" : undefined }} />
         </button>
         <p style={{ color: "var(--text-muted)", fontSize: "0.76rem" }}>
           {isLoading ? "Waiting for camera…" : "Tap to capture"}
         </p>
       </div>
+
     </div>
   );
 }
@@ -974,22 +1984,12 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
                 </button>
               </div>
               <input
-                id={`field-${key}`} className="input-field"
+                id={`field-${key}`}
+                className={`input-field ${confirmedFields.has(key) ? "verified" : ""}`}
                 value={(grnData[key] as string) || ""}
+                readOnly={confirmedFields.has(key)}
                 onChange={(e) => {
                   updateField(key, e.target.value);
-                  if (confirmedFields.has(key)) {
-                    setConfirmedFields((prev) => {
-                      const next = new Set(prev);
-                      next.delete(key);
-                      return next;
-                    });
-                  }
-                }}
-                style={{
-                  border: confirmedFields.has(key) ? "1.5px solid #10b981" : "1px solid #cbd5e1",
-                  background: confirmedFields.has(key) ? "#f0fdf4" : "#fff",
-                  transition: "all 0.2s ease",
                 }}
                 placeholder={`Enter ${label}…`}
               />
@@ -1008,6 +2008,15 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
           <button className="btn-secondary" onClick={addLineItem} id="add-line-btn" style={{ padding: "6px 12px", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: 5 }}>
             <PlusIcon size={12} /> Add Row
           </button>
+        </div>
+        <div className="mobile-scroll-helper">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Swipe horizontally to edit all columns</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 4 }}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
         </div>
         <div className="table-wrapper">
           <table className="data-table">
@@ -1061,21 +2070,14 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
                         <td key={f}>
                           <input
                             value={item[f] || ""} placeholder="—"
+                            readOnly={isVerified}
                             onChange={(e) => {
                               updateLineItem(i, f, e.target.value);
-                              if (confirmedFields.has(itemKey)) {
-                                setConfirmedFields((prev) => {
-                                  const next = new Set(prev);
-                                  next.delete(itemKey);
-                                  return next;
-                                });
-                              }
                             }}
                             id={`line-${i}-${f}`}
+                            className={isVerified ? "table-input-verified" : ""}
                             style={{
                               minWidth: f === "description" ? 120 : 60,
-                              color: isVerified ? "#065f46" : "inherit",
-                              fontWeight: isVerified ? 500 : "normal",
                             }}
                           />
                         </td>
@@ -1136,22 +2138,12 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
                 </button>
               </div>
               <input
-                id={`field-${key}`} className="input-field"
+                id={`field-${key}`}
+                className={`input-field ${confirmedFields.has(key) ? "verified" : ""}`}
                 value={grnData[key] || ""}
+                readOnly={confirmedFields.has(key)}
                 onChange={(e) => {
                   updateField(key, e.target.value);
-                  if (confirmedFields.has(key)) {
-                    setConfirmedFields((prev) => {
-                      const next = new Set(prev);
-                      next.delete(key);
-                      return next;
-                    });
-                  }
-                }}
-                style={{
-                  border: confirmedFields.has(key) ? "1.5px solid #10b981" : "1px solid #cbd5e1",
-                  background: confirmedFields.has(key) ? "#f0fdf4" : "#fff",
-                  transition: "all 0.2s ease",
                 }}
                 placeholder="₹ 0.00"
               />
@@ -1182,22 +2174,12 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
               </button>
             </div>
             <input
-              id="field-remarks" className="input-field"
+              id="field-remarks"
+              className={`input-field ${confirmedFields.has("remarks") ? "verified" : ""}`}
               value={grnData.remarks || ""}
+              readOnly={confirmedFields.has("remarks")}
               onChange={(e) => {
                 updateField("remarks", e.target.value);
-                if (confirmedFields.has("remarks")) {
-                  setConfirmedFields((prev) => {
-                    const next = new Set(prev);
-                    next.delete("remarks");
-                    return next;
-                  });
-                }
-              }}
-              style={{
-                border: confirmedFields.has("remarks") ? "1.5px solid #10b981" : "1px solid #cbd5e1",
-                background: confirmedFields.has("remarks") ? "#f0fdf4" : "#fff",
-                transition: "all 0.2s ease",
               }}
               placeholder="Add remarks…"
             />

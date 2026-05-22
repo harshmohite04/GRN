@@ -108,101 +108,101 @@ const ArrowRightIcon = () => (
 
 export default function Home() {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-primary)" }}>
       {/* NAV */}
       <nav style={{
         position: "sticky", top: 0, zIndex: 50,
-        background: "rgba(255,255,255,0.95)",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid #e2e8f0",
+        background: "var(--bg-secondary)",
+        borderBottom: "1px solid var(--border-subtle)",
+        boxShadow: "var(--shadow-xs)"
       }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg,#4f46e5,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 4px 10px rgba(79,70,229,0.2)" }}>
+            <div style={{ width: 32, height: 32, borderRadius: "var(--radius-sm)", background: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <LogoIcon />
             </div>
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: "#0f172a" }}>GRN Automation</span>
+            <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text-primary)", letterSpacing: "-0.01em" }}>GRN Automation</span>
           </div>
           <div className="desktop-nav-links">
             <a href="#how-it-works" className="nav-link">How it works</a>
             <a href="#features" className="nav-link">Features</a>
             <a href="#pricing" className="nav-link">Pricing</a>
-            <Link href="/scan" className="btn-primary" style={{ padding: "8px 18px", fontSize: "0.85rem" }}>
+            <Link href="/scan" className="btn-primary" style={{ padding: "8px 16px", fontSize: "0.85rem" }}>
               Start Scanning <ArrowRightIcon />
             </Link>
           </div>
-          <Link href="/scan" className="btn-primary mobile-cta" style={{ padding: "8px 16px", fontSize: "0.82rem" }}>
+          <Link href="/scan" className="btn-primary mobile-cta" style={{ padding: "8px 14px", fontSize: "0.8rem" }}>
             Scan <ArrowRightIcon />
           </Link>
         </div>
       </nav>
 
-      <main style={{ flex: 1 }}>
+      <main style={{ flex: 1 }} className="bg-mesh">
         {/* HERO */}
-        <section style={{ maxWidth: 1100, margin: "0 auto", padding: "72px 20px 64px", textAlign: "center" }}>
+        <section style={{ maxWidth: 1100, margin: "0 auto", padding: "80px 20px 64px", textAlign: "center" }}>
           <div className="animate-in badge badge-info" style={{ display: "inline-flex", marginBottom: 20 }}>
             <SparklesIcon /> Intelligent Document Processing
           </div>
 
           <h1 className="animate-in-delay-1" style={{
-            fontSize: "clamp(1.9rem, 5.5vw, 3.6rem)",
-            fontWeight: 800, lineHeight: 1.1,
-            letterSpacing: "-0.03em", color: "#0f172a", marginBottom: 20,
+            fontSize: "clamp(2rem, 5vw, 3.2rem)",
+            fontWeight: 800, lineHeight: 1.15,
+            letterSpacing: "-0.02em", color: "var(--text-primary)", marginBottom: 20,
           }}>
             Scan GRN Documents &amp;<br />
-            <span className="gradient-text">Extract Data Instantly</span>
+            <span style={{ color: "var(--accent-primary)" }}>Extract Data Instantly</span>
           </h1>
 
           <p className="animate-in-delay-2" style={{
-            fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)",
+            fontSize: "clamp(0.95rem, 2.2vw, 1.05rem)",
             color: "var(--text-secondary)",
-            maxWidth: 520, margin: "0 auto 36px", lineHeight: 1.8,
+            maxWidth: 560, margin: "0 auto 36px", lineHeight: 1.6,
           }}>
             Upload any Goods Receipt Note — handwritten, printed, or scanned — and our system automatically extracts vendor details, PO numbers, line items, and amounts.
           </p>
 
           <div className="hero-buttons animate-in-delay-3">
-            <Link href="/scan" className="btn-primary" style={{ padding: "13px 32px", fontSize: "0.95rem" }}>
-              <DocumentIcon size={18} color="#fff" /> Scan Your First GRN
+            <Link href="/scan" className="btn-primary" style={{ padding: "12px 28px", fontSize: "0.9rem" }}>
+              <DocumentIcon size={16} color="#fff" /> Scan Your First GRN
             </Link>
-            <a href="#how-it-works" className="btn-secondary" style={{ padding: "13px 32px", fontSize: "0.95rem" }}>
+            <a href="#how-it-works" className="btn-secondary" style={{ padding: "12px 28px", fontSize: "0.9rem" }}>
               See how it works
             </a>
           </div>
 
           {/* Stats */}
-          <div style={{ display: "flex", gap: "clamp(20px,4vw,48px)", justifyContent: "center", marginTop: 56, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "clamp(24px,6vw,56px)", justifyContent: "center", marginTop: 64, flexWrap: "wrap" }}>
             {[
               { number: "< 30s", label: "Avg extraction time" },
               { number: "22+", label: "Languages supported" },
               { number: "12+", label: "GRN fields extracted" },
             ].map((s) => (
-              <div key={s.label} style={{ textAlign: "center" }}>
-                <div className="gradient-text" style={{ fontSize: "clamp(1.5rem,4vw,2rem)", fontWeight: 800 }}>{s.number}</div>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 2 }}>{s.label}</div>
+              <div key={s.label} style={{ textAlign: "center", minWidth: 120 }}>
+                <div style={{ fontSize: "clamp(1.6rem,4vw,2.2rem)", fontWeight: 800, color: "var(--accent-primary)" }}>{s.number}</div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
               </div>
             ))}
           </div>
         </section>
 
         {/* HOW IT WORKS */}
-        <section id="how-it-works" style={{ background: "#fff", borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0" }}>
+        <section id="how-it-works" style={{ background: "var(--bg-secondary)", borderTop: "1px solid var(--border-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
           <div style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 20px" }}>
-            <div style={{ textAlign: "center", marginBottom: 44 }}>
+            <div style={{ textAlign: "center", marginBottom: 48 }}>
               <p className="section-label">Process</p>
-              <h2 style={{ fontSize: "clamp(1.4rem,3.5vw,1.8rem)", fontWeight: 700, color: "#0f172a" }}>How It Works</h2>
+              <h2 style={{ fontSize: "clamp(1.35rem,3vw,1.6rem)", fontWeight: 700, color: "var(--text-primary)" }}>How It Works</h2>
             </div>
             <div className="grid-3col">
               {[
-                { step: "01", icon: <DocumentIcon size={22} color="#4f46e5" />, title: "Upload Document", desc: "Drag & drop or browse to select your GRN. Supports photos, scans, and PDF files up to 10 MB.", color: "#4f46e5" },
-                { step: "02", icon: <CpuIcon size={22} color="#7c3aed" />, title: "Automatic Extraction", desc: "Our intelligent engine reads the document and extracts all relevant fields with high accuracy.", color: "#7c3aed" },
-                { step: "03", icon: <CheckCircleIcon size={22} color="#0891b2" />, title: "Review & Save", desc: "Extracted fields auto-populate a clean editable form. Verify, correct, and confirm in seconds.", color: "#0891b2" },
+                { step: "01", icon: <DocumentIcon size={20} color="var(--accent-primary)" />, title: "Upload Document", desc: "Drag & drop or browse to select your GRN. Supports photos, scans, and PDF files up to 10 MB.", color: "var(--accent-primary)" },
+                { step: "02", icon: <CpuIcon size={20} color="var(--accent-secondary)" />, title: "Automatic Extraction", desc: "Our intelligent engine reads the document and extracts all relevant fields with high accuracy.", color: "var(--accent-secondary)" },
+                { step: "03", icon: <CheckCircleIcon size={20} color="var(--accent-cyan)" />, title: "Review & Save", desc: "Extracted fields auto-populate a clean editable form. Verify, correct, and confirm in seconds.", color: "var(--accent-cyan)" },
               ].map((item) => (
-                <div key={item.step} className="card" style={{ padding: "24px 22px" }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 11, background: `${item.color}12`, border: `1px solid ${item.color}25`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>{item.icon}</div>
-                  <div style={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.1em", color: item.color, marginBottom: 5, textTransform: "uppercase" }}>Step {item.step}</div>
-                  <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: 7 }}>{item.title}</h3>
-                  <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.7 }}>{item.desc}</p>
+                <div key={item.step} className="card" style={{ padding: "24px 20px" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "var(--radius-md)", background: "var(--bg-muted)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>{item.icon}</div>
+                  <div style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 5, textTransform: "uppercase" }}>Step {item.step}</div>
+                  <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>{item.title}</h3>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", lineHeight: 1.6 }}>{item.desc}</p>
                 </div>
               ))}
             </div>
@@ -215,15 +215,15 @@ export default function Home() {
             <div className="grid-2col">
               <div>
                 <p className="section-label">Why GRN Automation</p>
-                <h2 style={{ fontSize: "clamp(1.4rem,3.5vw,1.8rem)", fontWeight: 700, color: "#0f172a", lineHeight: 1.3, marginBottom: 14 }}>
+                <h2 style={{ fontSize: "clamp(1.35rem,3vw,1.6rem)", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.3, marginBottom: 14 }}>
                   Built for Indian Supply Chain Operations
                 </h2>
-                <p style={{ color: "var(--text-secondary)", lineHeight: 1.8, marginBottom: 24, fontSize: "0.9rem" }}>
+                <p style={{ color: "var(--text-secondary)", lineHeight: 1.6, marginBottom: 24, fontSize: "0.875rem" }}>
                   Handles complex document layouts, mixed scripts, and regional language text common in Indian procurement documents — from MSME invoices to enterprise GRNs.
                 </p>
                 <Link href="/scan" className="btn-primary">Start scanning <ArrowRightIcon /></Link>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {[
                   { icon: <SearchIcon />, text: "Extracts 12+ GRN fields automatically" },
                   { icon: <ChartIcon />, text: "Full line item table with quantities & rates" },
@@ -234,9 +234,9 @@ export default function Home() {
                   { icon: <FileIcon />, text: "JPG, PNG, and PDF supported" },
                   { icon: <LightningIcon />, text: "Results typically in under 30 seconds" },
                 ].map((f, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 13px", background: "#fff", borderRadius: 9, border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", boxShadow: "var(--shadow-xs)" }}>
                     <span style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>{f.icon}</span>
-                    <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{f.text}</span>
+                    <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 500 }}>{f.text}</span>
                   </div>
                 ))}
               </div>
@@ -245,42 +245,42 @@ export default function Home() {
         </section>
 
         {/* PRICING */}
-        <section id="pricing" style={{ background: "var(--bg-primary)", borderTop: "1px solid #e2e8f0" }}>
+        <section id="pricing" style={{ background: "var(--bg-secondary)", borderTop: "1px solid var(--border-subtle)" }}>
           <div style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 20px" }}>
             <div style={{ textAlign: "center", marginBottom: 44 }}>
               <p className="section-label">Pricing</p>
-              <h2 style={{ fontSize: "clamp(1.4rem,3.5vw,1.8rem)", fontWeight: 700, color: "#0f172a" }}>Simple, Transparent Pricing</h2>
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginTop: 8 }}>Pay only for what you process with our enterprise subscription plan</p>
+              <h2 style={{ fontSize: "clamp(1.35rem,3vw,1.6rem)", fontWeight: 700, color: "var(--text-primary)" }}>Simple, Transparent Pricing</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: 8 }}>Pay only for what you process with our enterprise subscription plan</p>
             </div>
             
             <div style={{
               display: "flex",
               flexWrap: "wrap",
               justifyContent: "center",
-              gap: "32px",
+              gap: "24px",
               marginTop: "16px"
             }}>
               {/* Pro Card */}
               <div className="card" style={{
-                maxWidth: "400px",
+                maxWidth: "380px",
                 width: "100%",
-                padding: "36px 32px",
-                border: "2px solid #e2e8f0",
-                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
+                padding: "32px 28px",
+                border: "1px solid var(--border-subtle)",
+                boxShadow: "var(--shadow-xs)",
                 display: "flex",
                 flexDirection: "column",
-                background: "#fff",
-                borderRadius: "14px"
+                background: "var(--bg-secondary)",
+                borderRadius: "var(--radius-lg)"
               }}>
-                <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>Pro Document Pass</h3>
-                <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: 24 }}>Ideal for growing logistics, supply chains, and finance teams</p>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Pro Document Pass</h3>
+                <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", marginBottom: 20 }}>Ideal for growing logistics, supply chains, and finance teams</p>
                 
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 24 }}>
-                  <span style={{ fontSize: "2.5rem", fontWeight: 800, color: "#0f172a", lineHeight: 1 }}>₹12</span>
-                  <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem", fontWeight: 500 }}>/ document</span>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 20 }}>
+                  <span style={{ fontSize: "2.2rem", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1 }}>₹12</span>
+                  <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", fontWeight: 500 }}>/ document</span>
                 </div>
                 
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32, flex: 1 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28, flex: 1 }}>
                   {[
                     "High-speed Neural Document Intelligence engine",
                     "Resilient multi-engine automatic failover protection",
@@ -290,58 +290,57 @@ export default function Home() {
                     "Instantly editable inputs with auto-invalidation",
                     "Secure enterprise processing with zero data retention"
                   ].map((feat, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "start", gap: 10 }}>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2, flexShrink: 0 }}>
+                    <div key={i} style={{ display: "flex", alignItems: "start", gap: 8 }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-emerald)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2, flexShrink: 0 }}>
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
-                      <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>{feat}</span>
+                      <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>{feat}</span>
                     </div>
                   ))}
                 </div>
                 
-                <Link href="/scan" className="btn-primary" style={{ display: "flex", justifyContent: "center", width: "100%", padding: "12px 0", fontSize: "0.9rem", marginTop: "auto" }}>
+                <Link href="/scan" className="btn-primary" style={{ display: "flex", justifyContent: "center", width: "100%", padding: "10px 0", fontSize: "0.85rem", marginTop: "auto" }}>
                   Get Started Today <ArrowRightIcon />
                 </Link>
               </div>
 
               {/* Enterprise Card */}
               <div className="card" style={{
-                maxWidth: "400px",
+                maxWidth: "380px",
                 width: "100%",
-                padding: "36px 32px",
-                border: "2px solid #4f46e5",
-                boxShadow: "0 10px 25px -5px rgba(79,70,229,0.1)",
+                padding: "32px 28px",
+                border: "1px solid var(--accent-primary)",
+                boxShadow: "var(--shadow-sm)",
                 position: "relative",
-                overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
-                background: "#fff",
-                borderRadius: "14px"
+                background: "var(--bg-secondary)",
+                borderRadius: "var(--radius-lg)"
               }}>
                 <div style={{
                   position: "absolute",
-                  top: 0,
-                  right: 0,
-                  background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
+                  top: 12,
+                  right: 12,
+                  background: "var(--accent-primary)",
                   color: "#fff",
-                  fontSize: "0.68rem",
+                  fontSize: "0.62rem",
                   fontWeight: 700,
-                  padding: "4px 24px",
-                  transform: "rotate(45deg) translate(28px, -8px)",
-                  letterSpacing: "0.05em",
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  letterSpacing: "0.02em",
                   textTransform: "uppercase"
                 }}>
                   Premium
                 </div>
                 
-                <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>Custom Enterprise</h3>
-                <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: 24 }}>For large scale operations with high-frequency procurement data flows</p>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Custom Enterprise</h3>
+                <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", marginBottom: 20 }}>For large scale operations with high-frequency procurement data flows</p>
                 
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 24 }}>
-                  <span style={{ fontSize: "2rem", fontWeight: 800, color: "#4f46e5", lineHeight: 1 }}>Let's Talk</span>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 20 }}>
+                  <span style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--accent-primary)", lineHeight: 1 }}>Let's Talk</span>
                 </div>
                 
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32, flex: 1 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28, flex: 1 }}>
                   {[
                     "Unlimited high-priority document queue processing",
                     "Custom model fine-tuning tailored to your templates",
@@ -351,11 +350,11 @@ export default function Home() {
                     "Custom data exports (CSV, PDF, XML, SQL, ERP triggers)",
                     "Dedicated support, direct WhatsApp integration, and training sessions"
                   ].map((feat, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "start", gap: 10 }}>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2, flexShrink: 0 }}>
+                    <div key={i} style={{ display: "flex", alignItems: "start", gap: 8 }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2, flexShrink: 0 }}>
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
-                      <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>{feat}</span>
+                      <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>{feat}</span>
                     </div>
                   ))}
                 </div>
@@ -364,11 +363,11 @@ export default function Home() {
                   display: "flex",
                   justifyContent: "center",
                   alignItems: "center",
-                  gap: 8,
+                  gap: 6,
                   width: "100%",
-                  padding: "12px 0",
-                  fontSize: "0.9rem",
-                  background: "linear-gradient(135deg,#4f46e5,#7c3aed)",
+                  padding: "10px 0",
+                  fontSize: "0.85rem",
+                  background: "var(--accent-primary)",
                   marginTop: "auto"
                 }}>
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -382,16 +381,16 @@ export default function Home() {
         </section>
 
         {/* CTA */}
-        <section style={{ background: "#fff", borderTop: "1px solid #e2e8f0" }}>
+        <section style={{ background: "var(--bg-primary)", borderTop: "1px solid var(--border-subtle)" }}>
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "64px 20px", textAlign: "center" }}>
-            <h2 style={{ fontSize: "clamp(1.3rem,3.5vw,1.7rem)", fontWeight: 700, color: "#0f172a", marginBottom: 12 }}>
+            <h2 style={{ fontSize: "clamp(1.25rem,3vw,1.5rem)", fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>
               Ready to automate your GRN processing?
             </h2>
-            <p style={{ color: "var(--text-secondary)", marginBottom: 24, fontSize: "0.9rem" }}>
+            <p style={{ color: "var(--text-secondary)", marginBottom: 24, fontSize: "0.875rem" }}>
               Start scanning documents in seconds — no complex setup required.
             </p>
-            <Link href="/scan" className="btn-primary" style={{ padding: "13px 36px", fontSize: "0.95rem" }}>
-              <LightningIcon size={18} color="#fff" /> Start Scanning Now
+            <Link href="/scan" className="btn-primary" style={{ padding: "12px 32px", fontSize: "0.9rem" }}>
+              <LightningIcon size={16} color="#fff" /> Start Scanning Now
             </Link>
           </div>
         </section>
@@ -399,47 +398,47 @@ export default function Home() {
 
       {/* FOOTER */}
       <footer style={{
-        borderTop: "1px solid #e2e8f0",
-        padding: "36px 20px 24px",
-        background: "#fff",
+        borderTop: "1px solid var(--border-subtle)",
+        padding: "32px 20px 24px",
+        background: "var(--bg-secondary)",
         color: "var(--text-secondary)",
-        fontSize: "0.85rem"
+        fontSize: "0.82rem"
       }}>
         <div style={{
           maxWidth: 1100,
           margin: "0 auto",
           display: "flex",
           flexDirection: "column",
-          gap: 20,
+          gap: 16,
           alignItems: "center",
           justifyContent: "space-between",
           textAlign: "center"
         }}>
-          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "24px", color: "var(--text-muted)", fontSize: "0.8rem", alignItems: "center" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#4f46e5" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "20px", color: "var(--text-secondary)", fontSize: "0.78rem", alignItems: "center" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent-primary)" }}>
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                 <circle cx="12" cy="7" r="4" />
               </svg>
               <strong>Developer:</strong> Harsh
             </span>
-            <span style={{ color: "#cbd5e1" }}>|</span>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#10b981" }}>
+            <span style={{ color: "var(--border-medium)" }}>|</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent-emerald)" }}>
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
               </svg>
-              <strong>Contact &amp; Support:</strong>{" "}
-              <a href="tel:+919356836581" style={{ color: "#4f46e5", textDecoration: "none", fontWeight: 600, transition: "color 0.15s ease" }} className="hover-link">
+              <strong>Contact:</strong>{" "}
+              <a href="tel:+919356836581" style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600 }}>
                 +91 9356836581
               </a>
             </span>
           </div>
           
           <div style={{
-            fontSize: "0.78rem",
+            fontSize: "0.75rem",
             color: "var(--text-muted)",
-            borderTop: "1px solid #f1f5f9",
-            paddingTop: 16,
+            borderTop: "1px solid var(--border-subtle)",
+            paddingTop: 12,
             width: "100%",
             textAlign: "center"
           }}>

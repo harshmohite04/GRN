@@ -1,9 +1,54 @@
 import type { NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
+import { db } from '../../../lib/db';
 
 // POST /api/ocr
 // Accepts multipart/form-data with a "file" field (image or PDF) and an optional "language" field
 // Uses a direct high-speed multimodal Google Gemini 3.1 Flash call to extract fields & raw text in one go!
 export async function POST(request: NextRequest) {
+  // Step 0: Session Verification & Trial Limit Check
+  let sessionEmail = '';
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('session_token')?.value;
+    
+    if (!token) {
+      return Response.json(
+        { success: false, error: 'Unauthorized: Please log in first' },
+        { status: 401 }
+      );
+    }
+
+    const session = db.getSession(token);
+    if (!session) {
+      cookieStore.delete('session_token');
+      return Response.json(
+        { success: false, error: 'Session expired. Please log in again' },
+        { status: 401 }
+      );
+    }
+
+    sessionEmail = session.email;
+    const user = db.getUser(sessionEmail);
+    
+    const allowed = user.allowedScans ?? 10;
+    if (user.trialCount >= allowed) {
+      return Response.json(
+        { 
+          success: false, 
+          error: `You have exhausted all your ${allowed} trial scans. Please purchase additional scans to continue.` 
+        },
+        { status: 403 }
+      );
+    }
+  } catch (err) {
+    console.error('OCR Auth validation error:', err);
+    return Response.json(
+      { success: false, error: 'Authentication validation failed' },
+      { status: 500 }
+    );
+  }
+
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
     return Response.json(
@@ -36,6 +81,13 @@ export async function POST(request: NextRequest) {
 
   if (file.size > 10 * 1024 * 1024) {
     return Response.json({ success: false, error: 'File too large. Max 10 MB allowed' }, { status: 400 });
+  }
+
+  // Increment trial count before proceeding with Gemini call since the request is valid
+  try {
+    db.incrementTrial(sessionEmail);
+  } catch (err) {
+    console.error('Failed to increment trial count:', err);
   }
 
   try {
@@ -158,11 +210,16 @@ Strict Rules:
     const grnData = JSON.parse(completionText);
     
     // Add rawText at the root of response alongside grnData for perfect compatibility
+    const updatedUser = db.getUser(sessionEmail);
+    const updatedAllowed = updatedUser.allowedScans ?? 10;
     return Response.json({
       success: true,
       rawText: grnData.rawText || '',
       grnData: grnData,
-      jobId: `gemini-${Date.now()}`
+      jobId: `gemini-${Date.now()}`,
+      trialCount: updatedUser.trialCount,
+      allowedScans: updatedAllowed,
+      trialsLeft: Math.max(0, updatedAllowed - updatedUser.trialCount)
     });
 
   } catch (error) {

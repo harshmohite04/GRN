@@ -1,5 +1,7 @@
 // GRN field extractor — parses raw OCR text into structured GRN fields
 // POST /api/extract-grn
+import { cookies } from 'next/headers';
+import { db } from '../../../lib/db';
 
 interface GRNLineItem {
   srNo: string;
@@ -251,6 +253,46 @@ function extractLineItems(text: string): GRNLineItem[] {
 }
 
 export async function POST(request: Request) {
+  // Session & Trial Limit Check
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('session_token')?.value;
+    
+    if (!token) {
+      return Response.json(
+        { success: false, error: 'Unauthorized: Please log in first' },
+        { status: 401 }
+      );
+    }
+
+    const session = db.getSession(token);
+    if (!session) {
+      cookieStore.delete('session_token');
+      return Response.json(
+        { success: false, error: 'Session expired. Please log in again' },
+        { status: 401 }
+      );
+    }
+
+    const user = db.getUser(session.email);
+    const allowed = user.allowedScans ?? 10;
+    if (user.trialCount >= allowed) {
+      return Response.json(
+        { 
+          success: false, 
+          error: `You have exhausted all your ${allowed} trial scans. Please purchase additional scans to continue.` 
+        },
+        { status: 403 }
+      );
+    }
+  } catch (err) {
+    console.error('Extraction Auth validation error:', err);
+    return Response.json(
+      { success: false, error: 'Authentication validation failed' },
+      { status: 500 }
+    );
+  }
+
   let body: { rawText: string };
   try {
     body = await request.json();

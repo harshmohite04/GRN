@@ -1,0 +1,17 @@
+{
+  "users": {
+    "mohiteharsh639@gmail.com": {
+      "email": "mohiteharsh639@gmail.com",
+      "trialCount": 1,
+      "createdAt": "2026-05-22T09:00:44.630Z",
+      "allowedScans": 21
+    }
+  },
+  "otps": {},
+  "sessions": {
+    "r9yht2abl1981mhrh9bb6d": {
+      "email": "mohiteharsh639@gmail.com",
+      "expiresAt": 1779527322181
+    }
+  }
+}
