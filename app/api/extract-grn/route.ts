@@ -263,6 +263,134 @@ export async function POST(request: Request) {
     return Response.json({ error: 'rawText is required' }, { status: 400 });
   }
 
+  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (geminiApiKey) {
+    try {
+      console.log('Gemini API Key detected. Initializing LLM-based field extraction...');
+      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+
+      const responseSchema = {
+        type: 'OBJECT',
+        properties: {
+          grnNumber: { type: 'STRING', description: 'The GRN (Goods Receipt Note) Number' },
+          grnDate: { type: 'STRING', description: 'Date of the GRN, standardized to DD/MM/YYYY or YYYY-MM-DD' },
+          poNumber: { type: 'STRING', description: 'Purchase Order Number' },
+          invoiceNumber: { type: 'STRING', description: 'Invoice or Bill Number' },
+          invoiceDate: { type: 'STRING', description: 'Invoice Date' },
+          vendorName: { type: 'STRING', description: 'Vendor or Supplier Name' },
+          vendorCode: { type: 'STRING', description: 'Vendor/Supplier Code if available' },
+          warehouseStore: { type: 'STRING', description: 'Warehouse or Store name where items are received' },
+          department: { type: 'STRING', description: 'Department name' },
+          vehicleNumber: { type: 'STRING', description: 'Indian Vehicle Registration Number, e.g. MH 12 AB 1234 or MH12AB1234. Look for prefix Truck, Vehicle, Lorry, Gate Pass, etc.' },
+          lineItems: {
+            type: 'ARRAY',
+            description: 'List of all material/line items from the receipt table',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                srNo: { type: 'STRING', description: 'Serial or row number (standardize to 1, 2, 3...)' },
+                itemCode: { type: 'STRING', description: 'Item/Material Code or Part Number' },
+                description: { type: 'STRING', description: 'Item Description' },
+                unit: { type: 'STRING', description: 'Unit of Measure (UOM), e.g., Nos, Kgs, Bags, Boxes' },
+                poQty: { type: 'STRING', description: 'PO / Ordered Quantity' },
+                receivedQty: { type: 'STRING', description: 'Received or Accepted Quantity' },
+                rate: { type: 'STRING', description: 'Unit Rate/Price, cleaned of currency symbols and commas' },
+                amount: { type: 'STRING', description: 'Total Amount, cleaned of currency symbols and commas' }
+              },
+              required: ['srNo', 'itemCode', 'description', 'unit', 'poQty', 'receivedQty', 'rate', 'amount']
+            }
+          },
+          subTotal: { type: 'STRING', description: 'Subtotal, cleaned of currency symbols and commas' },
+          taxAmount: { type: 'STRING', description: 'Tax Amount (GST, CGST, SGST, IGST), cleaned' },
+          totalAmount: { type: 'STRING', description: 'Total/Grand Total Amount, cleaned' },
+          remarks: { type: 'STRING', description: 'Any comments, notes, or remarks found' }
+        },
+        required: [
+          'grnNumber', 'grnDate', 'poNumber', 'invoiceNumber', 'invoiceDate',
+          'vendorName', 'vendorCode', 'warehouseStore', 'department', 'vehicleNumber',
+          'lineItems', 'subTotal', 'taxAmount', 'totalAmount', 'remarks'
+        ]
+      };
+
+      const systemPrompt = `You are an expert GRN (Goods Receipt Note) data extraction assistant.
+Extract fields from the raw OCR markdown text and return a valid JSON object matching the requested schema.
+
+Strict Rules:
+1. If any field or table item column is not found, leave it as an empty string "".
+2. Clean currency symbols (₹, Rs., INR) and commas from numeric rate/amount values.
+3. Carefully analyze the text for the Indian Vehicle registration number. It could be prefixed by Vehicle, Truck, Vechile, Lorry, Gate Pass, etc. Indian plates can have various space/hyphen patterns, e.g. "MH 12 TG 1234", "MH12TG1234", "DL 3C AB 1234", "HR26-XY-9999", or "22 BH 1234 AB".
+4. In the lineItems list, extract all items from any table. Map the columns correctly even if they are in different orders.`;
+
+      const payload = {
+        contents: [
+          {
+            parts: [
+              { text: `${systemPrompt}\n\nHere is the raw OCR text:\n\n${rawText}` }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+          temperature: 0.1
+        }
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Gemini API responded with status ${response.status}: ${await response.text()}`);
+      }
+
+      const responseData = await response.json();
+      const completionText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!completionText) {
+        throw new Error('Empty completion content from Gemini API');
+      }
+
+      const parsed = JSON.parse(completionText);
+      const grnData: GRNData = {
+        grnNumber: String(parsed.grnNumber || ''),
+        grnDate: String(parsed.grnDate || ''),
+        poNumber: String(parsed.poNumber || ''),
+        invoiceNumber: String(parsed.invoiceNumber || ''),
+        invoiceDate: String(parsed.invoiceDate || ''),
+        vendorName: String(parsed.vendorName || ''),
+        vendorCode: String(parsed.vendorCode || ''),
+        warehouseStore: String(parsed.warehouseStore || ''),
+        department: String(parsed.department || ''),
+        vehicleNumber: String(parsed.vehicleNumber || ''),
+        lineItems: Array.isArray(parsed.lineItems) ? parsed.lineItems.map((item: any, idx: number) => ({
+          srNo: String(item.srNo || idx + 1),
+          itemCode: String(item.itemCode || ''),
+          description: String(item.description || ''),
+          unit: String(item.unit || ''),
+          poQty: String(item.poQty || ''),
+          receivedQty: String(item.receivedQty || ''),
+          rate: String(item.rate || ''),
+          amount: String(item.amount || '')
+        })) : [],
+        subTotal: String(parsed.subTotal || ''),
+        taxAmount: String(parsed.taxAmount || ''),
+        totalAmount: String(parsed.totalAmount || ''),
+        remarks: String(parsed.remarks || ''),
+        rawText
+      };
+
+      console.log('Successfully extracted fields via Gemini LLM engine!');
+      return Response.json({ success: true, grnData });
+    } catch (err: any) {
+      console.warn('Gemini LLM extraction failed. Falling back to DeepSeek or Local parser.', err);
+    }
+  }
+
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (apiKey) {
     try {

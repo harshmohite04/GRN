@@ -85,7 +85,7 @@ const LanguagesIcon = ({ size = 18, color = "#4f46e5" }) => (
   </svg>
 );
 
-// All 23 languages supported by Sarvam AI Document Intelligence
+// All 23 supported document processing languages
 const LANGUAGES = [
   { code: "en-IN", label: "English" },
   { code: "hi-IN", label: "Hindi (हिंदी)" },
@@ -162,22 +162,35 @@ export default function ScanPage() {
     if (!file) return;
     setError(null); setStep("processing");
     try {
-      setProcessingMsg("Uploading document for processing…");
+      setProcessingMsg("Digitizing and analyzing document…");
       const form = new FormData();
       form.append("file", file);
       form.append("language", docLanguage);
+      
       const ocrRes = await fetch("/api/ocr", { method: "POST", body: form });
       const ocrJson = await ocrRes.json();
-      if (!ocrRes.ok || !ocrJson.success) throw new Error(ocrJson.error || "OCR failed");
+      if (!ocrRes.ok || !ocrJson.success) throw new Error(ocrJson.error || "Document processing failed");
+      
+      setRawText(ocrJson.rawText || "");
+      
+      // If structured GRN data was returned directly, use it!
+      if (ocrJson.grnData) {
+        setGrnData(ocrJson.grnData);
+        setStep("review");
+        return;
+      }
+      
+      // Fallback: If for some reason grnData is missing, perform the secondary extraction step
       setProcessingMsg("Extracting GRN fields…");
-      setRawText(ocrJson.rawText);
       const extractRes = await fetch("/api/extract-grn", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rawText: ocrJson.rawText }),
       });
       const extractJson = await extractRes.json();
       if (!extractRes.ok || !extractJson.success) throw new Error(extractJson.error || "Extraction failed");
-      setGrnData(extractJson.grnData); setStep("review");
+      
+      setGrnData(extractJson.grnData);
+      setStep("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       setStep("upload");
@@ -341,7 +354,7 @@ function UploadStep({
         </svg>
       ),
       label: "Handwritten GRNs",
-      desc: "Sarvam AI reads script"
+      desc: "Advanced script analysis"
     }
   ];
 
@@ -1192,7 +1205,7 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
         </div>
       </div>
 
-      {/* Raw OCR toggle */}
+      {/* Raw text toggle */}
       <div className="card" style={{ padding: "14px 18px", marginBottom: 24 }}>
         <button
           onClick={() => setShowRaw(!showRaw)} id="toggle-raw-btn"
@@ -1203,7 +1216,7 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
               <polyline points="9 18 15 12 9 6" />
             </svg>
           </span>
-          View Raw OCR Text
+          View Raw Document Text
         </button>
         {showRaw && (
           <pre style={{ marginTop: 12, padding: 12, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: "0.76rem", color: "var(--text-secondary)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 220, overflowY: "auto", lineHeight: 1.6 }}>

@@ -1,15 +1,13 @@
 import type { NextRequest } from 'next/server';
-import { SarvamAIClient } from 'sarvamai';
-import AdmZip from 'adm-zip';
 
 // POST /api/ocr
 // Accepts multipart/form-data with a "file" field (image or PDF) and an optional "language" field
-// Uses Sarvam Document Intelligence SDK: createJob → uploadFile → start → poll → download
+// Uses a direct high-speed multimodal Google Gemini 3.1 Flash call to extract fields & raw text in one go!
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.SARVAM_API_KEY;
-  if (!apiKey || apiKey === 'your_sarvam_api_key_here') {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
     return Response.json(
-      { success: false, error: 'API key not configured. Add SARVAM_API_KEY to .env.local' },
+      { success: false, error: 'Gemini API key not configured. Add GEMINI_API_KEY to .env.local' },
       { status: 500 }
     );
   }
@@ -26,7 +24,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ success: false, error: 'No file provided' }, { status: 400 });
   }
 
-  const language = ((formData.get('language') as string) || 'en-IN') as any;
+  const language = (formData.get('language') as string) || 'en-IN';
 
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
   if (!allowedTypes.includes(file.type)) {
@@ -41,85 +39,134 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const client = new SarvamAIClient({ apiSubscriptionKey: apiKey });
-
-    // Step 1: Create a new job with dynamic language parameter
-    const job = await client.documentIntelligence.createJob({
-      language: language,
-      outputFormat: 'md',
-    });
-    console.log('Sarvam job created with language:', language, 'jobId:', job.jobId);
-
-    // Step 2: Upload the file (SDK fetches presigned URL and uploads directly)
-    await job.uploadFile(file);
-    console.log('Sarvam file uploaded');
-
-    // Step 3: Start processing
-    await job.start();
-    console.log('Sarvam job started');
-
-    // Step 4: Poll until complete (SDK polls every 2s, up to 150 attempts = ~5 min)
-    await job.waitUntilComplete();
-    console.log('Sarvam job complete');
-
-    // Step 5: Get presigned download URL and fetch content
-    const downloadResponse = await client.documentIntelligence.getDownloadLinks(job.jobId);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const downloadUrls = (downloadResponse as any).download_urls ?? {};
-    const firstEntry = Object.values(downloadUrls)[0] as { file_url?: string } | undefined;
-    const fileUrl = firstEntry?.file_url;
-
-    if (!fileUrl) {
-      return Response.json(
-        { success: false, error: 'No download URL returned from Sarvam. Job may still be processing.' },
-        { status: 500 }
-      );
-    }
-
-    const dlRes = await fetch(fileUrl);
-    if (!dlRes.ok) {
-      return Response.json(
-        { success: false, error: `Failed to download result: ${dlRes.status}` },
-        { status: 500 }
-      );
-    }
-
-    // Since Sarvam returns a ZIP archive containing the document, we must unzip it to get the raw Markdown text
-    const arrayBuffer = await dlRes.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    console.log('Preparing Gemini 3.1 Flash multimodal processing...');
     
-    let rawText = '';
-    try {
-      const zip = new AdmZip(buffer);
-      const zipEntries = zip.getEntries();
-      
-      // Look for document.md in the ZIP archive
-      const docEntry = zipEntries.find((entry: any) => entry.entryName === 'document.md');
-      if (docEntry) {
-        rawText = docEntry.getData().toString('utf8');
-      } else {
-        // Fallback: If document.md is not found, list available files or read first entry
-        console.warn('document.md not found in Sarvam ZIP. Available files:', zipEntries.map((e: any) => e.entryName));
-        const txtEntry = zipEntries.find((entry: any) => entry.entryName.endsWith('.md') || entry.entryName.endsWith('.txt'));
-        if (txtEntry) {
-          rawText = txtEntry.getData().toString('utf8');
-        } else if (zipEntries.length > 0) {
-          rawText = zipEntries[0].getData().toString('utf8');
+    // Step 1: Read file and convert to base64
+    const arrayBuffer = await file.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+    
+    // Step 2: Set up Gemini model and endpoint
+    const model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-image-preview';
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    console.log('Sending request to Gemini model:', model);
+
+    // Step 3: Define structured response schema matching GRNData interface
+    const responseSchema = {
+      type: 'OBJECT',
+      properties: {
+        grnNumber: { type: 'STRING', description: 'The GRN (Goods Receipt Note) Number' },
+        grnDate: { type: 'STRING', description: 'Date of the GRN, standardized to DD/MM/YYYY or YYYY-MM-DD' },
+        poNumber: { type: 'STRING', description: 'Purchase Order Number' },
+        invoiceNumber: { type: 'STRING', description: 'Invoice or Bill Number' },
+        invoiceDate: { type: 'STRING', description: 'Invoice Date' },
+        vendorName: { type: 'STRING', description: 'Vendor or Supplier Name' },
+        vendorCode: { type: 'STRING', description: 'Vendor/Supplier Code if available' },
+        warehouseStore: { type: 'STRING', description: 'Warehouse or Store name where items are received' },
+        department: { type: 'STRING', description: 'Department name' },
+        vehicleNumber: { type: 'STRING', description: 'Indian Vehicle Registration Number, e.g. MH 12 AB 1234 or MH12AB1234. Look for prefix Truck, Vehicle, Lorry, Gate Pass, etc.' },
+        lineItems: {
+          type: 'ARRAY',
+          description: 'List of all material/line items from the receipt table',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              srNo: { type: 'STRING', description: 'Serial or row number (standardize to 1, 2, 3...)' },
+              itemCode: { type: 'STRING', description: 'Item/Material Code or Part Number' },
+              description: { type: 'STRING', description: 'Item Description' },
+              unit: { type: 'STRING', description: 'Unit of Measure (UOM), e.g., Nos, Kgs, Bags, Boxes' },
+              poQty: { type: 'STRING', description: 'PO / Ordered Quantity' },
+              receivedQty: { type: 'STRING', description: 'Received or Accepted Quantity' },
+              rate: { type: 'STRING', description: 'Unit Rate/Price, cleaned of currency symbols and commas' },
+              amount: { type: 'STRING', description: 'Total Amount, cleaned of currency symbols and commas' }
+            },
+            required: ['srNo', 'itemCode', 'description', 'unit', 'poQty', 'receivedQty', 'rate', 'amount']
+          }
+        },
+        subTotal: { type: 'STRING', description: 'Subtotal, cleaned of currency symbols and commas' },
+        taxAmount: { type: 'STRING', description: 'Tax Amount (GST, CGST, SGST, IGST), cleaned' },
+        totalAmount: { type: 'STRING', description: 'Total/Grand Total Amount, cleaned' },
+        remarks: { type: 'STRING', description: 'Any comments, notes, or remarks found' },
+        rawText: { type: 'STRING', description: 'A complete, high-quality, comprehensive transcription of the entire document in clean markdown format' }
+      },
+      required: [
+        'grnNumber', 'grnDate', 'poNumber', 'invoiceNumber', 'invoiceDate',
+        'vendorName', 'vendorCode', 'warehouseStore', 'department', 'vehicleNumber',
+        'lineItems', 'subTotal', 'taxAmount', 'totalAmount', 'remarks', 'rawText'
+      ]
+    };
+
+    const promptText = `You are a highly precise multi-lingual Goods Receipt Note (GRN) data extraction assistant.
+Analyze the provided document (which may be a scan, photo, or PDF) carefully.
+Extract all relevant fields, transcribe the document, and return the structured JSON data as requested.
+
+Document Language: ${language} (if the document has text in this language, pay special attention to transcribing it accurately).
+
+Strict Rules:
+1. If a field or table column is missing, return an empty string "".
+2. For vehicleNumber, search for Indian vehicle registration plates (e.g. "MH 12 AB 1234", "MH-12-AB-1234", "DL 3C AB 1234", "HR26-XY-9999", "22 BH 1234 AB", etc.).
+3. Clean currency symbols (₹, Rs., INR) and commas from numeric rate, amount, subTotal, taxAmount, and totalAmount values.
+4. Populate "rawText" with a complete, clean, comprehensive Markdown transcription of the entire document (retaining tables, headers, footers).`;
+
+    // Step 4: Construct Request Payload for Gemini API
+    const payload = {
+      contents: [
+        {
+          parts: [
+            { text: promptText },
+            {
+              inlineData: {
+                mimeType: file.type,
+                data: base64Data
+              }
+            }
+          ]
         }
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: responseSchema,
+        temperature: 0.1
       }
-    } catch (zipError) {
-      console.error('Error unzipping Sarvam output:', zipError);
-      return Response.json(
-        { success: false, error: 'Failed to extract raw text from Sarvam ZIP archive' },
-        { status: 500 }
-      );
+    };
+
+    // Step 5: Send Request
+    const startTime = Date.now();
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Gemini API responded with status ${response.status}: ${errText}`);
     }
 
-    console.log('Sarvam extracted text length:', rawText.length);
-    return Response.json({ success: true, rawText, jobId: job.jobId });
+    const responseData = await response.json();
+    const completionText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!completionText) {
+      throw new Error('Empty completion content from Gemini API');
+    }
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`Gemini processing completed in ${duration}s!`);
+
+    const grnData = JSON.parse(completionText);
+    
+    // Add rawText at the root of response alongside grnData for perfect compatibility
+    return Response.json({
+      success: true,
+      rawText: grnData.rawText || '',
+      grnData: grnData,
+      jobId: `gemini-${Date.now()}`
+    });
 
   } catch (error) {
-    console.error('OCR API error:', error);
+    console.error('OCR / Gemini API error:', error);
     const msg = error instanceof Error ? error.message : String(error);
     return Response.json(
       { success: false, error: `Processing error: ${msg}` },
