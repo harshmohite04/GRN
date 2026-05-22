@@ -13,14 +13,14 @@ export async function GET(request: NextRequest) {
       return Response.json({ authenticated: false });
     }
 
-    const session = db.getSession(token);
+    const session = await db.getSession(token);
     if (!session) {
       // Invalid/expired token, clear cookie
       cookieStore.delete('session_token');
       return Response.json({ authenticated: false });
     }
 
-    const user = db.getUser(session.email);
+    const user = await db.getUser(session.email);
     return Response.json({
       authenticated: true,
       email: session.email,
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const token = cookieStore.get('session_token')?.value;
 
     if (token) {
-      db.deleteSession(token);
+      await db.deleteSession(token);
       cookieStore.delete('session_token');
     }
 

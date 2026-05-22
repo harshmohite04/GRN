@@ -20,16 +20,16 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
 
     // Step 1: Verify OTP
-    const isValid = db.verifyOtp(normalizedEmail, otp);
+    const isValid = await db.verifyOtp(normalizedEmail, otp);
     if (!isValid) {
       return Response.json({ success: false, error: 'Invalid or expired verification code' }, { status: 400 });
     }
 
     // Step 2: Retrieve User State
-    const user = db.getUser(normalizedEmail);
+    const user = await db.getUser(normalizedEmail);
 
     // Step 3: Create Session Token
-    const sessionToken = db.createSession(normalizedEmail);
+    const sessionToken = await db.createSession(normalizedEmail);
 
     // Step 4: Save session in HttpOnly Cookie
     const cookieStore = await cookies();

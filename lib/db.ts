@@ -1,17 +1,45 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { MongoClient, Db } from 'mongodb';
 
 // Determine if we are running in Vercel or a serverless environment
 const isVercel = !!process.env.VERCEL;
 
-// Define DB path
-// On Vercel, we must write to the writable temporary directory (/tmp)
+// Database Connection Settings
+const MONGODB_URI = process.env.MONGODB_URI;
+const KV_REST_API_URL = process.env.KV_REST_API_URL;
+const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
+
+// Local DB Path Settings
 const DB_DIR = isVercel ? os.tmpdir() : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DB_DIR, 'db.json');
-
-// Read-only path to the bundled db.json (used as seed data if it exists)
 const BUNDLED_DB_FILE = path.join(process.cwd(), 'data', 'db.json');
+
+// MongoDB Connection Caching
+let cachedMongoClient: MongoClient | null = null;
+let cachedMongoDb: Db | null = null;
+
+async function getMongoDb(): Promise<Db> {
+  if (cachedMongoDb) return cachedMongoDb;
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI environment variable is missing');
+  }
+  const client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  cachedMongoClient = client;
+  
+  // Extract database name from connection string or default to 'grn_automation'
+  let dbName = 'grn_automation';
+  try {
+    const url = new URL(MONGODB_URI);
+    dbName = url.pathname.substring(1) || 'grn_automation';
+  } catch (e) {}
+
+  const db = client.db(dbName);
+  cachedMongoDb = db;
+  return db;
+}
 
 // Interface definition for DB schema
 interface UserRecord {
@@ -37,25 +65,47 @@ interface DbSchema {
   sessions: Record<string, SessionRecord>;
 }
 
-// Initialize DB file if not exists
-function initDb(): DbSchema {
+// Helper to interact with Vercel KV via REST API
+async function kvExecute(command: string[]): Promise<any> {
+  if (!KV_REST_API_URL || !KV_REST_API_TOKEN) return null;
+  try {
+    const response = await fetch(KV_REST_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${KV_REST_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(command)
+    });
+    if (!response.ok) {
+      console.error(`KV REST Command [${command[0]}] failed:`, response.statusText);
+      return null;
+    }
+    const data = await response.json();
+    return data.result;
+  } catch (err) {
+    console.error(`KV REST Connection Error [${command[0]}]:`, err);
+    return null;
+  }
+}
+
+// Local filesystem fallback database helpers
+async function initLocalDb(): Promise<DbSchema> {
   if (!fs.existsSync(DB_DIR)) {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
   
   if (!fs.existsSync(DB_FILE)) {
-    // If we're on Vercel and the DB_FILE does not exist in /tmp, check if we have a bundled one to seed from
     if (isVercel && fs.existsSync(BUNDLED_DB_FILE)) {
       try {
         const seedData = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
         fs.writeFileSync(DB_FILE, seedData, 'utf-8');
         return JSON.parse(seedData) as DbSchema;
       } catch (err) {
-        console.error('Error seeding db.json from bundled file on Vercel:', err);
+        console.error('Error seeding db.json on Vercel:', err);
       }
     }
     
-    // Otherwise, write the default empty database structure
     const defaultData: DbSchema = { users: {}, otps: {}, sessions: {} };
     fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
     return defaultData;
@@ -65,16 +115,13 @@ function initDb(): DbSchema {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     return JSON.parse(raw) as DbSchema;
   } catch (err) {
-    console.error('Error parsing db.json, resetting database...', err);
-    // If read failed, try to recover from seed on Vercel
+    console.error('Error parsing db.json, resetting...', err);
     if (isVercel && fs.existsSync(BUNDLED_DB_FILE)) {
       try {
         const seedData = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
         fs.writeFileSync(DB_FILE, seedData, 'utf-8');
         return JSON.parse(seedData) as DbSchema;
-      } catch (e) {
-        // ignore and fallback
-      }
+      } catch (e) {}
     }
     const defaultData: DbSchema = { users: {}, otps: {}, sessions: {} };
     fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
@@ -82,8 +129,7 @@ function initDb(): DbSchema {
   }
 }
 
-// Write to DB file synchronously to guarantee thread-safe writes
-function saveDb(data: DbSchema) {
+async function saveLocalDb(data: DbSchema) {
   try {
     if (!fs.existsSync(DB_DIR)) {
       fs.mkdirSync(DB_DIR, { recursive: true });
@@ -94,32 +140,133 @@ function saveDb(data: DbSchema) {
   }
 }
 
-// Core Database Operations
+// Core Database Operations (Adapts dynamically to MongoDB, Vercel KV, or Local JSON)
 export const db = {
   // USER METHODS
-  getUser(email: string): UserRecord {
-    const data = initDb();
+  async getUser(email: string): Promise<UserRecord> {
     const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      const user = await mongo.collection('users').findOne({ email: normalizedEmail });
+      
+      if (!user) {
+        const newUser: UserRecord = {
+          email: normalizedEmail,
+          trialCount: 0,
+          allowedScans: 10,
+          createdAt: new Date().toISOString()
+        };
+        await mongo.collection('users').insertOne(newUser);
+        return newUser;
+      }
+
+      if (user.allowedScans === undefined) {
+        await mongo.collection('users').updateOne(
+          { email: normalizedEmail },
+          { $set: { allowedScans: 10 } }
+        );
+        user.allowedScans = 10;
+      }
+
+      return {
+        email: user.email,
+        trialCount: user.trialCount,
+        allowedScans: user.allowedScans,
+        createdAt: user.createdAt
+      };
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      
+      if (!data.users[normalizedEmail]) {
+        data.users[normalizedEmail] = {
+          email: normalizedEmail,
+          trialCount: 0,
+          allowedScans: 10,
+          createdAt: new Date().toISOString()
+        };
+        await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      } else if (data.users[normalizedEmail].allowedScans === undefined) {
+        data.users[normalizedEmail].allowedScans = 10;
+        await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      }
+      return data.users[normalizedEmail];
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     if (!data.users[normalizedEmail]) {
-      // Create user if not exists
       data.users[normalizedEmail] = {
         email: normalizedEmail,
         trialCount: 0,
         allowedScans: 10,
         createdAt: new Date().toISOString()
       };
-      saveDb(data);
+      await saveLocalDb(data);
     } else if (data.users[normalizedEmail].allowedScans === undefined) {
-      // Migrate existing records
       data.users[normalizedEmail].allowedScans = 10;
-      saveDb(data);
+      await saveLocalDb(data);
     }
     return data.users[normalizedEmail];
   },
 
-  incrementTrial(email: string): UserRecord {
-    const data = initDb();
+  async incrementTrial(email: string): Promise<UserRecord> {
     const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      await mongo.collection('users').updateOne(
+        { email: normalizedEmail },
+        {
+          $inc: { trialCount: 1 },
+          $setOnInsert: { allowedScans: 10, createdAt: new Date().toISOString() }
+        },
+        { upsert: true }
+      );
+      const user = await mongo.collection('users').findOne({ email: normalizedEmail });
+      return {
+        email: normalizedEmail,
+        trialCount: user?.trialCount ?? 1,
+        allowedScans: user?.allowedScans ?? 10,
+        createdAt: user?.createdAt ?? new Date().toISOString()
+      };
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      
+      if (!data.users[normalizedEmail]) {
+        data.users[normalizedEmail] = {
+          email: normalizedEmail,
+          trialCount: 0,
+          allowedScans: 10,
+          createdAt: new Date().toISOString()
+        };
+      }
+      data.users[normalizedEmail].trialCount += 1;
+      if (data.users[normalizedEmail].allowedScans === undefined) {
+        data.users[normalizedEmail].allowedScans = 10;
+      }
+      await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      return data.users[normalizedEmail];
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     if (!data.users[normalizedEmail]) {
       data.users[normalizedEmail] = {
         email: normalizedEmail,
@@ -132,13 +279,59 @@ export const db = {
     if (data.users[normalizedEmail].allowedScans === undefined) {
       data.users[normalizedEmail].allowedScans = 10;
     }
-    saveDb(data);
+    await saveLocalDb(data);
     return data.users[normalizedEmail];
   },
 
-  addScans(email: string, count: number): UserRecord {
-    const data = initDb();
+  async addScans(email: string, count: number): Promise<UserRecord> {
     const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      await mongo.collection('users').updateOne(
+        { email: normalizedEmail },
+        {
+          $inc: { allowedScans: count },
+          $setOnInsert: { trialCount: 0, createdAt: new Date().toISOString() }
+        },
+        { upsert: true }
+      );
+      const user = await mongo.collection('users').findOne({ email: normalizedEmail });
+      return {
+        email: normalizedEmail,
+        trialCount: user?.trialCount ?? 0,
+        allowedScans: user?.allowedScans ?? 10,
+        createdAt: user?.createdAt ?? new Date().toISOString()
+      };
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      
+      if (!data.users[normalizedEmail]) {
+        data.users[normalizedEmail] = {
+          email: normalizedEmail,
+          trialCount: 0,
+          allowedScans: 10,
+          createdAt: new Date().toISOString()
+        };
+      }
+      if (data.users[normalizedEmail].allowedScans === undefined) {
+        data.users[normalizedEmail].allowedScans = 10;
+      }
+      data.users[normalizedEmail].allowedScans += count;
+      await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      return data.users[normalizedEmail];
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     if (!data.users[normalizedEmail]) {
       data.users[normalizedEmail] = {
         email: normalizedEmail,
@@ -151,80 +344,208 @@ export const db = {
       data.users[normalizedEmail].allowedScans = 10;
     }
     data.users[normalizedEmail].allowedScans += count;
-    saveDb(data);
+    await saveLocalDb(data);
     return data.users[normalizedEmail];
   },
 
   // OTP METHODS
-  createOtp(email: string): string {
-    const data = initDb();
+  async createOtp(email: string): Promise<string> {
     const normalizedEmail = email.toLowerCase().trim();
-    
-    // Generate secure random 6-digit number
     const otp = String(Math.floor(100000 + Math.random() * 900000));
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes expiration
-    
+    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      await mongo.collection('otps').updateOne(
+        { email: normalizedEmail },
+        { $set: { otp, expiresAt } },
+        { upsert: true }
+      );
+      return otp;
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      data.otps[normalizedEmail] = { otp, expiresAt };
+      await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      return otp;
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     data.otps[normalizedEmail] = { otp, expiresAt };
-    saveDb(data);
-    
+    await saveLocalDb(data);
     return otp;
   },
 
-  verifyOtp(email: string, code: string): boolean {
-    const data = initDb();
+  async verifyOtp(email: string, code: string): Promise<boolean> {
     const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      const record = await mongo.collection('otps').findOne({ email: normalizedEmail });
+      
+      if (!record) return false;
+      if (record.otp !== code.trim()) return false;
+      
+      await mongo.collection('otps').deleteOne({ email: normalizedEmail });
+      if (Date.now() > record.expiresAt) return false;
+      
+      return true;
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      
+      const record = data.otps[normalizedEmail];
+      if (!record) return false;
+      if (record.otp !== code.trim()) return false;
+      
+      delete data.otps[normalizedEmail];
+      await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      
+      if (Date.now() > record.expiresAt) return false;
+      return true;
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     const record = data.otps[normalizedEmail];
-    
     if (!record) return false;
     if (record.otp !== code.trim()) return false;
-    if (Date.now() > record.expiresAt) {
-      // Expired, delete it
-      delete data.otps[normalizedEmail];
-      saveDb(data);
-      return false;
-    }
     
-    // Success, delete the OTP so it cannot be reused
     delete data.otps[normalizedEmail];
-    saveDb(data);
+    await saveLocalDb(data);
+    
+    if (Date.now() > record.expiresAt) return false;
     return true;
   },
 
   // SESSION METHODS
-  createSession(email: string): string {
-    const data = initDb();
+  async createSession(email: string): Promise<string> {
     const normalizedEmail = email.toLowerCase().trim();
-    
-    // Generate standard secure random string as token
     const token = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-    
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      await mongo.collection('sessions').insertOne({
+        token,
+        email: normalizedEmail,
+        expiresAt
+      });
+      return token;
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      data.sessions[token] = { email: normalizedEmail, expiresAt };
+      await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      return token;
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     data.sessions[token] = { email: normalizedEmail, expiresAt };
-    saveDb(data);
-    
+    await saveLocalDb(data);
     return token;
   },
 
-  getSession(token: string): SessionRecord | null {
-    const data = initDb();
+  async getSession(token: string): Promise<SessionRecord | null> {
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      const record = await mongo.collection('sessions').findOne({ token });
+      
+      if (!record) return null;
+      if (Date.now() > record.expiresAt) {
+        await mongo.collection('sessions').deleteOne({ token });
+        return null;
+      }
+      
+      return {
+        email: record.email,
+        expiresAt: record.expiresAt
+      };
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      
+      const record = data.sessions[token];
+      if (!record) return null;
+      
+      if (Date.now() > record.expiresAt) {
+        delete data.sessions[token];
+        await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+        return null;
+      }
+      return record;
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     const record = data.sessions[token];
-    
     if (!record) return null;
+    
     if (Date.now() > record.expiresAt) {
-      // Session expired, delete it
       delete data.sessions[token];
-      saveDb(data);
+      await saveLocalDb(data);
       return null;
     }
-    
     return record;
   },
 
-  deleteSession(token: string) {
-    const data = initDb();
+  async deleteSession(token: string): Promise<void> {
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      await mongo.collection('sessions').deleteOne({ token });
+      return;
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      if (data.sessions[token]) {
+        delete data.sessions[token];
+        await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      }
+      return;
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
     if (data.sessions[token]) {
       delete data.sessions[token];
-      saveDb(data);
+      await saveLocalDb(data);
     }
   }
 };

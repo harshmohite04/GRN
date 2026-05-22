@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
 
     // Step 1: Check trial scan limit (Max 10)
-    const user = db.getUser(normalizedEmail);
+    const user = await db.getUser(normalizedEmail);
     if (user.trialCount >= 10) {
       return Response.json(
         { 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Create OTP
-    const otp = db.createOtp(normalizedEmail);
+    const otp = await db.createOtp(normalizedEmail);
 
     // Step 3: Trigger OTP sending
     const emailResult = await sendOtpEmail(normalizedEmail, otp);

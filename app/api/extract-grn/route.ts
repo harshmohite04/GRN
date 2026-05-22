@@ -265,7 +265,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const session = db.getSession(token);
+    const session = await db.getSession(token);
     if (!session) {
       cookieStore.delete('session_token');
       return Response.json(
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = db.getUser(session.email);
+    const user = await db.getUser(session.email);
     const allowed = user.allowedScans ?? 10;
     if (user.trialCount >= allowed) {
       return Response.json(

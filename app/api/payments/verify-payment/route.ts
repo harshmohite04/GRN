@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     if (!token) {
       return Response.json({ success: false, error: 'Unauthorized: Please log in first' }, { status: 401 });
     }
-    const session = db.getSession(token);
+    const session = await db.getSession(token);
     if (!session) {
       return Response.json({ success: false, error: 'Session expired' }, { status: 401 });
     }
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       console.log(`[DEMO PAYMENT MODE]: Verifying mock payment for ${docCount} documents.`);
       
       // Update allowed scans
-      const updatedUser = db.addScans(session.email, docCount);
+      const updatedUser = await db.addScans(session.email, docCount);
       const updatedAllowed = updatedUser.allowedScans ?? 10;
 
       return Response.json({
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update allowed scans in DB
-    const updatedUser = db.addScans(session.email, docCount);
+    const updatedUser = await db.addScans(session.email, docCount);
     const updatedAllowed = updatedUser.allowedScans ?? 10;
 
     console.log(`[PAYMENT VERIFIED]: Added ${docCount} scans for ${session.email}. Total allowed: ${updatedAllowed}`);

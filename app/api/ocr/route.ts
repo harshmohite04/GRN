@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const session = db.getSession(token);
+    const session = await db.getSession(token);
     if (!session) {
       cookieStore.delete('session_token');
       return Response.json(
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     sessionEmail = session.email;
-    const user = db.getUser(sessionEmail);
+    const user = await db.getUser(sessionEmail);
     
     const allowed = user.allowedScans ?? 10;
     if (user.trialCount >= allowed) {
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
 
   // Increment trial count before proceeding with Gemini call since the request is valid
   try {
-    db.incrementTrial(sessionEmail);
+    await db.incrementTrial(sessionEmail);
   } catch (err) {
     console.error('Failed to increment trial count:', err);
   }
@@ -210,7 +210,7 @@ Strict Rules:
     const grnData = JSON.parse(completionText);
     
     // Add rawText at the root of response alongside grnData for perfect compatibility
-    const updatedUser = db.getUser(sessionEmail);
+    const updatedUser = await db.getUser(sessionEmail);
     const updatedAllowed = updatedUser.allowedScans ?? 10;
     return Response.json({
       success: true,
