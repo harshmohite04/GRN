@@ -1,9 +1,17 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+
+// Determine if we are running in Vercel or a serverless environment
+const isVercel = !!process.env.VERCEL;
 
 // Define DB path
-const DB_DIR = path.join(process.cwd(), 'data');
+// On Vercel, we must write to the writable temporary directory (/tmp)
+const DB_DIR = isVercel ? os.tmpdir() : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DB_DIR, 'db.json');
+
+// Read-only path to the bundled db.json (used as seed data if it exists)
+const BUNDLED_DB_FILE = path.join(process.cwd(), 'data', 'db.json');
 
 // Interface definition for DB schema
 interface UserRecord {
@@ -34,16 +42,40 @@ function initDb(): DbSchema {
   if (!fs.existsSync(DB_DIR)) {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
+  
   if (!fs.existsSync(DB_FILE)) {
+    // If we're on Vercel and the DB_FILE does not exist in /tmp, check if we have a bundled one to seed from
+    if (isVercel && fs.existsSync(BUNDLED_DB_FILE)) {
+      try {
+        const seedData = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
+        fs.writeFileSync(DB_FILE, seedData, 'utf-8');
+        return JSON.parse(seedData) as DbSchema;
+      } catch (err) {
+        console.error('Error seeding db.json from bundled file on Vercel:', err);
+      }
+    }
+    
+    // Otherwise, write the default empty database structure
     const defaultData: DbSchema = { users: {}, otps: {}, sessions: {} };
     fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
     return defaultData;
   }
+  
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     return JSON.parse(raw) as DbSchema;
   } catch (err) {
     console.error('Error parsing db.json, resetting database...', err);
+    // If read failed, try to recover from seed on Vercel
+    if (isVercel && fs.existsSync(BUNDLED_DB_FILE)) {
+      try {
+        const seedData = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
+        fs.writeFileSync(DB_FILE, seedData, 'utf-8');
+        return JSON.parse(seedData) as DbSchema;
+      } catch (e) {
+        // ignore and fallback
+      }
+    }
     const defaultData: DbSchema = { users: {}, otps: {}, sessions: {} };
     fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
     return defaultData;
