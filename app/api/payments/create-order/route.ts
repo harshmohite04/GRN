@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
       return Response.json({ success: false, error: 'Please specify a valid number of documents' }, { status: 400 });
     }
 
-    // Apply special ₹1 testing exemption for exactly 1 scan. Otherwise charge ₹12/scan.
-    const amountINR = docCount === 1 ? 1 : docCount * 12;
+    const pricePerDoc = 12; // ₹12 per document
+    const amountINR = docCount * pricePerDoc;
     const amountPaise = amountINR * 100;
 
     // 3. Razorpay keys check

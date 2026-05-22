@@ -985,7 +985,7 @@ export default function ScanPage() {
                     boxShadow: "0 4px 12px rgba(79, 70, 229, 0.2)"
                   }}
                 >
-                  Pay ₹{parseInt(customDocCount) === 1 ? 1 : (parseInt(customDocCount) || 0) * 12}
+                  Pay ₹{(parseInt(customDocCount) || 0) * 12}
                 </button>
               </div>
             </div>
@@ -1059,7 +1059,7 @@ export default function ScanPage() {
               <div style={{ borderTop: "1px solid #e2e8f0", margin: "10px 0" }} />
               <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "0.88rem" }}>
                 <span style={{ color: "#0f172a" }}>Simulated Price</span>
-                <span style={{ color: "#10b981" }}>₹{mockPaymentOrderData.amount ? (mockPaymentOrderData.amount / 100).toFixed(2) : (mockPaymentOrderData.docCount === 1 ? "1.00" : (mockPaymentOrderData.docCount * 12).toFixed(2))}</span>
+                <span style={{ color: "#10b981" }}>₹{mockPaymentOrderData.amount ? (mockPaymentOrderData.amount / 100).toFixed(2) : (mockPaymentOrderData.docCount * 12).toFixed(2)}</span>
               </div>
             </div>
 
@@ -1360,7 +1360,7 @@ function UploadStep({
                     boxShadow: "0 4px 12px rgba(79, 70, 229, 0.2)"
                   }}
                 >
-                  Pay ₹{parseInt(customDocCount) === 1 ? 1 : (parseInt(customDocCount) || 0) * 12}
+                  Pay ₹{(parseInt(customDocCount) || 0) * 12}
                 </button>
               </div>
             </div>

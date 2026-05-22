@@ -25,7 +25,11 @@ async function getMongoDb(): Promise<Db> {
   if (!MONGODB_URI) {
     throw new Error('MONGODB_URI environment variable is missing');
   }
-  const client = new MongoClient(MONGODB_URI);
+  const client = new MongoClient(MONGODB_URI, {
+    autoSelectFamily: false,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+  });
   await client.connect();
   cachedMongoClient = client;
   
