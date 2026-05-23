@@ -2571,7 +2571,7 @@ function SavedDetailModal({ grnRecord, onClose }: { grnRecord: any; onClose: () 
         className="modal-card animate-fade-in-up"
         style={{
           maxWidth: 950,
-          width: "90%",
+          width: "95%",
           maxHeight: "90vh",
           padding: 0,
           overflow: "hidden",
@@ -2624,7 +2624,7 @@ function SavedDetailModal({ grnRecord, onClose }: { grnRecord: any; onClose: () 
           {/* Dual Panel Split */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
             gap: 24,
             marginBottom: 20
           }}>
@@ -2736,7 +2736,7 @@ function SavedDetailModal({ grnRecord, onClose }: { grnRecord: any; onClose: () 
           {/* Totals & Remarks Block */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
             gap: 20,
             marginTop: 20
           }}>
