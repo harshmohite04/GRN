@@ -63,10 +63,19 @@ interface SessionRecord {
   expiresAt: number; // millisecond timestamp
 }
 
+interface GrnRecord {
+  id: string;
+  email: string;
+  grnData: any;
+  photoUrl?: string; // base64 representation of the document
+  createdAt: string;
+}
+
 interface DbSchema {
   users: Record<string, UserRecord>;
   otps: Record<string, OtpRecord>;
   sessions: Record<string, SessionRecord>;
+  grns?: Record<string, GrnRecord>;
 }
 
 // Helper to interact with Vercel KV via REST API
@@ -103,31 +112,40 @@ async function initLocalDb(): Promise<DbSchema> {
     if (isVercel && fs.existsSync(BUNDLED_DB_FILE)) {
       try {
         const seedData = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
-        fs.writeFileSync(DB_FILE, seedData, 'utf-8');
-        return JSON.parse(seedData) as DbSchema;
+        const parsed = JSON.parse(seedData) as DbSchema;
+        if (!parsed.grns) parsed.grns = {};
+        fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+        return parsed;
       } catch (err) {
         console.error('Error seeding db.json on Vercel:', err);
       }
     }
     
-    const defaultData: DbSchema = { users: {}, otps: {}, sessions: {} };
+    const defaultData: DbSchema = { users: {}, otps: {}, sessions: {}, grns: {} };
     fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
     return defaultData;
   }
   
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(raw) as DbSchema;
+    const parsed = JSON.parse(raw) as DbSchema;
+    if (!parsed.grns) {
+      parsed.grns = {};
+      fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+    }
+    return parsed;
   } catch (err) {
     console.error('Error parsing db.json, resetting...', err);
     if (isVercel && fs.existsSync(BUNDLED_DB_FILE)) {
       try {
         const seedData = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
-        fs.writeFileSync(DB_FILE, seedData, 'utf-8');
-        return JSON.parse(seedData) as DbSchema;
+        const parsed = JSON.parse(seedData) as DbSchema;
+        if (!parsed.grns) parsed.grns = {};
+        fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+        return parsed;
       } catch (e) {}
     }
-    const defaultData: DbSchema = { users: {}, otps: {}, sessions: {} };
+    const defaultData: DbSchema = { users: {}, otps: {}, sessions: {}, grns: {} };
     fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
     return defaultData;
   }
@@ -551,5 +569,79 @@ export const db = {
       delete data.sessions[token];
       await saveLocalDb(data);
     }
+  },
+
+  // GRN METHODS
+  async saveGrn(email: string, grnData: any, photoBase64?: string): Promise<GrnRecord> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const id = 'grn_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const newGrn: GrnRecord = {
+      id,
+      email: normalizedEmail,
+      grnData,
+      photoUrl: photoBase64,
+      createdAt: new Date().toISOString()
+    };
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      await mongo.collection('grns').insertOne(newGrn);
+      return newGrn;
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {}, grns: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      if (!data.grns) data.grns = {};
+      data.grns[id] = newGrn;
+      await kvExecute(['SET', 'grn_db', JSON.stringify(data)]);
+      return newGrn;
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
+    if (!data.grns) data.grns = {};
+    data.grns[id] = newGrn;
+    await saveLocalDb(data);
+    return newGrn;
+  },
+
+  async getGrns(email: string): Promise<GrnRecord[]> {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. MONGODB ADAPTER
+    if (MONGODB_URI) {
+      const mongo = await getMongoDb();
+      const records = await mongo.collection('grns')
+        .find({ email: normalizedEmail })
+        .sort({ createdAt: -1 })
+        .toArray();
+      return records as unknown as GrnRecord[];
+    }
+
+    // 2. VERCEL KV ADAPTER
+    if (KV_REST_API_URL && KV_REST_API_TOKEN) {
+      const result = await kvExecute(['GET', 'grn_db']);
+      let data: DbSchema = { users: {}, otps: {}, sessions: {}, grns: {} };
+      if (result) {
+        try { data = JSON.parse(result); } catch (e) {}
+      }
+      if (!data.grns) return [];
+      return Object.values(data.grns)
+        .filter((g: GrnRecord) => g.email === normalizedEmail)
+        .sort((a: GrnRecord, b: GrnRecord) => b.createdAt.localeCompare(a.createdAt));
+    }
+
+    // 3. LOCAL FILESYSTEM ADAPTER
+    const data = await initLocalDb();
+    if (!data.grns) return [];
+    return Object.values(data.grns)
+      .filter((g: GrnRecord) => g.email === normalizedEmail)
+      .sort((a: GrnRecord, b: GrnRecord) => b.createdAt.localeCompare(a.createdAt));
   }
 };

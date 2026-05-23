@@ -140,6 +140,19 @@ export default function ScanPage() {
   const [docLanguage, setDocLanguage] = useState("en-IN");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Hydration Mount Guard
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // GRN Saving & History Dashboard States
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"scanner" | "history">("scanner");
+  const [savedGrns, setSavedGrns] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedGrn, setSelectedGrn] = useState<any | null>(null);
+
   // Authentication & Trial States
   const [sessionChecked, setSessionChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
@@ -190,6 +203,72 @@ export default function ScanPage() {
   useEffect(() => {
     checkSession();
   }, [checkSession]);
+
+  const convertFileToBase64 = (f: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(f);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const fetchSavedGrns = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/grns");
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSavedGrns(data.grns || []);
+      }
+    } catch (err) {
+      console.error("Failed to load saved GRNs:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const handleSaveGrn = async (): Promise<boolean> => {
+    if (!grnData) return false;
+    setSaveLoading(true);
+    setError(null);
+    try {
+      let photoData = "";
+      if (file) {
+        photoData = await convertFileToBase64(file);
+      }
+
+      const res = await fetch("/api/grns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grnData, photoData })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to save GRN");
+      }
+
+      // Successfully saved! Let's fetch history to keep it up-to-date
+      await fetchSavedGrns();
+      
+      // Auto-switch to history tab so user immediately sees what they saved!
+      setActiveTab("history");
+      handleReset(); // Reset the scanner workspace
+      
+      return true;
+    } catch (err: any) {
+      setError(err.message || "Failed to save GRN document.");
+      return false;
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authenticated) {
+      fetchSavedGrns();
+    }
+  }, [authenticated, fetchSavedGrns]);
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -486,6 +565,14 @@ export default function ScanPage() {
   ] as const;
   const currentIdx = STEPS.findIndex((s) => s.id === step);
 
+  if (!isMounted) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 40, height: 40, borderRadius: "50%", border: "3px solid rgba(79,70,229,0.15)", borderTopColor: "#4f46e5", animation: "spin 0.9s linear infinite" }} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)", display: "flex", flexDirection: "column" }}>
       {/* NAV */}
@@ -635,38 +722,102 @@ export default function ScanPage() {
           </div>
         )}
 
-        {step === "upload" && (
-          <UploadStep
-            file={file} preview={preview} isDragOver={isDragOver}
-            fileInputRef={fileInputRef} onDrop={onDrop}
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={() => setIsDragOver(false)}
-            onFileChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-            onExtract={handleExtract}
-            onClear={() => { setFile(null); setPreview(null); }}
-            inputMode={inputMode}
-            setInputMode={setInputMode}
-            onCameraCapture={handleFile}
-            docLanguage={docLanguage}
-            setDocLanguage={setDocLanguage}
-            trialCount={trialCount}
-            userEmail={userEmail}
-            handleLogout={handleLogout}
-            allowedScans={allowedScans}
-            handlePayment={handlePayment}
-            checkoutLoading={checkoutLoading}
-            customDocCount={customDocCount}
-            setCustomDocCount={setCustomDocCount}
-          />
+        {authenticated && step !== "processing" && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "1.5px solid #e2e8f0", paddingBottom: 12 }}>
+            <button
+              onClick={() => setActiveTab("scanner")}
+              style={{
+                padding: "8px 20px",
+                borderRadius: 8,
+                border: "none",
+                background: activeTab === "scanner" ? "linear-gradient(135deg, #ede9fe, #f5f3ff)" : "transparent",
+                color: activeTab === "scanner" ? "#4f46e5" : "#64748b",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: activeTab === "scanner" ? "0 2px 8px rgba(79, 70, 229, 0.08)" : "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+              Document Scanner
+            </button>
+            <button
+              onClick={() => { setActiveTab("history"); fetchSavedGrns(); }}
+              style={{
+                padding: "8px 20px",
+                borderRadius: 8,
+                border: "none",
+                background: activeTab === "history" ? "linear-gradient(135deg, #ede9fe, #f5f3ff)" : "transparent",
+                color: activeTab === "history" ? "#4f46e5" : "#64748b",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: activeTab === "history" ? "0 2px 8px rgba(79, 70, 229, 0.08)" : "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Saved GRNs
+            </button>
+          </div>
         )}
-        {step === "processing" && <ProcessingStep message={processingMsg} />}
-        {step === "review" && grnData && (
-          <ReviewStep
-            grnData={grnData} rawText={rawText} showRaw={showRaw}
-            setShowRaw={setShowRaw} updateField={updateField}
-            updateLineItem={updateLineItem} addLineItem={addLineItem}
-            removeLineItem={removeLineItem} onReset={handleReset}
+
+        {activeTab === "history" && authenticated ? (
+          <SavedHistory
+            savedGrns={savedGrns}
+            isLoading={historyLoading}
+            onViewDetails={(grn) => setSelectedGrn(grn)}
+            onReset={() => setActiveTab("scanner")}
           />
+        ) : (
+          <>
+            {step === "upload" && (
+              <UploadStep
+                file={file} preview={preview} isDragOver={isDragOver}
+                fileInputRef={fileInputRef} onDrop={onDrop}
+                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={() => setIsDragOver(false)}
+                onFileChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                onExtract={handleExtract}
+                onClear={() => { setFile(null); setPreview(null); }}
+                inputMode={inputMode}
+                setInputMode={setInputMode}
+                onCameraCapture={handleFile}
+                docLanguage={docLanguage}
+                setDocLanguage={setDocLanguage}
+                trialCount={trialCount}
+                userEmail={userEmail}
+                handleLogout={handleLogout}
+                allowedScans={allowedScans}
+                handlePayment={handlePayment}
+                checkoutLoading={checkoutLoading}
+                customDocCount={customDocCount}
+                setCustomDocCount={setCustomDocCount}
+              />
+            )}
+            {step === "processing" && <ProcessingStep message={processingMsg} />}
+            {step === "review" && grnData && (
+              <ReviewStep
+                grnData={grnData} rawText={rawText} showRaw={showRaw}
+                setShowRaw={setShowRaw} updateField={updateField}
+                updateLineItem={updateLineItem} addLineItem={addLineItem}
+                removeLineItem={removeLineItem} onReset={handleReset}
+                onSave={handleSaveGrn} saveLoading={saveLoading}
+              />
+            )}
+          </>
         )}
       </div>
 
@@ -1127,6 +1278,13 @@ export default function ScanPage() {
           <span>{paymentSuccessMessage}</span>
         </div>
       )}
+
+      {selectedGrn && (
+        <SavedDetailModal
+          grnRecord={selectedGrn}
+          onClose={() => setSelectedGrn(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1554,164 +1712,34 @@ function CameraCapture({ onCapture, onExtract, capturedFile, capturedPreview, on
   onClear: () => void;
   onSwitchToUpload: () => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [camError, setCamError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [facing, setFacing] = useState<"environment" | "user">("environment");
+  const nativeCamRef = useRef<HTMLInputElement>(null);
 
-  const startCamera = async (facingMode: "environment" | "user") => {
-    setCamError(null);
-    setIsLoading(true);
-
-    // Check 1: HTTPS required (blocks on mobile over LAN)
-    if (typeof window !== "undefined" && !window.isSecureContext) {
-      setCamError("INSECURE_CONTEXT");
-      setIsLoading(false);
-      return;
-    }
-
-    // Check 2: API not available
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCamError("Camera is not supported in this browser.");
-      setIsLoading(false);
-      return;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-
-    // 5-second timeout so it never hangs
-    const timeoutId = setTimeout(() => {
-      setCamError("Camera took too long to start. Try refreshing or use Upload instead.");
-      setIsLoading(false);
-    }, 5000);
-
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-      clearTimeout(timeoutId);
-      streamRef.current = s;
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = s;
-        video.onloadedmetadata = async () => {
-          try { await video.play(); } catch { /* silent on some browsers */ }
-          setIsLoading(false);
-        };
-      }
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("NotAllowed") || msg.includes("Permission") || msg.includes("denied")) {
-        setCamError("Permission denied. Allow camera access in your browser and tap Try Again.");
-      } else if (msg.includes("NotFound") || msg.includes("DevicesNotFound")) {
-        setCamError("No camera found on this device.");
-      } else {
-        setCamError("Could not start camera. Use Upload File instead.");
-      }
-      setIsLoading(false);
-    }
+  const handleOpenFile = () => {
+    nativeCamRef.current?.click();
   };
 
-  useEffect(() => {
-    if (!capturedFile) startCamera("environment");
-    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const switchCamera = async () => {
-    const next = facing === "environment" ? "user" : "environment";
-    setFacing(next);
-    await startCamera(next);
-  };
-
-  const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const f = new File([blob], `grn-capture-${Date.now()}.jpg`, { type: "image/jpeg" });
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
       onCapture(f);
-    }, "image/jpeg", 0.92);
+    }
   };
-
-  if (camError) {
-    const isHttpIssue = camError === "INSECURE_CONTEXT";
-    return (
-      <div style={{
-        padding: "32px 20px", textAlign: "center", borderRadius: 16,
-        background: isHttpIssue ? "#fffbeb" : "#fff1f2",
-        border: `1px solid ${isHttpIssue ? "#fde68a" : "#fecdd3"}`,
-      }}>
-        <div style={{ marginBottom: 12, display: "flex", justifyContent: "center" }}>
-          {isHttpIssue ? (
-            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          ) : (
-            <CameraIcon size={36} color="#e11d48" />
-          )}
-        </div>
-        <p style={{ color: isHttpIssue ? "#92400e" : "#991b1b", fontWeight: 700, marginBottom: 8, fontSize: "0.95rem" }}>
-          {isHttpIssue ? "Camera requires a secure connection" : "Camera Unavailable"}
-        </p>
-        <p style={{ color: isHttpIssue ? "#b45309" : "#b91c1c", fontSize: "0.82rem", marginBottom: 20, lineHeight: 1.7 }}>
-          {isHttpIssue
-            ? "Your mobile browser blocks camera access over a local network (HTTP). Tap below to upload a photo from your gallery instead."
-            : camError}
-        </p>
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-          <button className="btn-primary" onClick={onSwitchToUpload} id="switch-upload-btn">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-              Use Upload Instead
-            </span>
-          </button>
-          {!isHttpIssue && (
-            <button className="btn-secondary" onClick={() => startCamera(facing)}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <ResetIcon size={14} color="currentColor" />
-                Try Again
-              </span>
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
 
   if (capturedFile && capturedPreview) {
     return (
-      <div style={{ textAlign: "center" }}>
+      <div style={{ textAlign: "center", animation: "fade-in 0.3s ease" }}>
         <img src={capturedPreview} alt="Captured" style={{ width: "100%", maxHeight: 340, objectFit: "contain", borderRadius: 14, marginBottom: 14, boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
         <div className="badge badge-success" style={{ marginBottom: 10, display: "inline-flex", alignItems: "center", gap: 6 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-            <circle cx="12" cy="13" r="4" />
+            <polyline points="20 6 9 17 4 12" />
           </svg>
           Photo captured
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button className="btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={() => { onClear(); startCamera(facing); }} id="retake-btn">
+          <button className="btn-secondary" style={{ flex: 1, justifyContent: "center" }} onClick={() => { onClear(); setTimeout(handleOpenFile, 100); }} id="retake-btn">
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <ResetIcon size={14} color="currentColor" />
-              Retake
+              Retake Photo
             </span>
           </button>
           <button className="btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={onExtract} id="extract-camera-btn">
@@ -1729,69 +1757,68 @@ function CameraCapture({ onCapture, onExtract, capturedFile, capturedPreview, on
   }
 
   return (
-    <div>
-      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#1e1e1e", aspectRatio: "4/3" }}>
-        {/* Video — always rendered so ref is available; hidden while loading */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: isLoading ? 0 : 1, transition: "opacity 0.3s" }}
-        />
-
-        {/* Loading overlay */}
-        {isLoading && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", border: "3px solid rgba(255,255,255,0.2)", borderTopColor: "#fff", animation: "spin 0.9s linear infinite" }} />
-            <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.8rem" }}>Starting camera…</p>
-          </div>
-        )}
-
-        {/* Viewfinder corners & scanline — only when live */}
-        {!isLoading && (
-          <>
-            <div className="viewfinder-scanline" />
-            <div className="viewfinder-corner tl" />
-            <div className="viewfinder-corner tr" />
-            <div className="viewfinder-corner bl" />
-            <div className="viewfinder-corner br" />
-          </>
-        )}
-
-        {/* Flip camera button */}
-        {!isLoading && (
-          <button
-            onClick={switchCamera} title="Flip camera" id="flip-camera-btn"
-            style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 42, height: 42, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-            </svg>
-          </button>
-        )}
+    <div style={{
+      background: "#ffffff",
+      border: "2px dashed #cbd5e1",
+      borderRadius: 16,
+      padding: "48px 24px",
+      textAlign: "center",
+      cursor: "pointer",
+      transition: "all 0.2s ease",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 16
+    }}
+    onClick={handleOpenFile}
+    className="camera-click-zone"
+    >
+      <input
+        ref={nativeCamRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+      <div className="animate-float" style={{
+        width: 64,
+        height: 64,
+        borderRadius: "50%",
+        background: "#ede9fe",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#4f46e5"
+      }}>
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
       </div>
-
-      <canvas ref={canvasRef} style={{ display: "none" }} />
-
-      {/* Capture button */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 18, gap: 8 }}>
-        <button
-          onClick={capturePhoto} id="capture-btn"
-          disabled={isLoading}
-          className="capture-btn-outer"
-          onMouseDown={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(0.9)"; }}
-          onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-          onTouchStart={(e) => { if (!isLoading) e.currentTarget.style.transform = "scale(0.9)"; }}
-          onTouchEnd={(e) => (e.currentTarget.style.transform = "scale(1)")}
-        >
-          <div className="capture-btn-inner" style={{ background: isLoading ? "#cbd5e1" : undefined }} />
-        </button>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.76rem" }}>
-          {isLoading ? "Waiting for camera…" : "Tap to capture"}
+      <div>
+        <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#0f172a", marginBottom: 5 }}>Open Device Camera</h3>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+          Tap to capture a photo of your GRN document using your native camera app.
         </p>
       </div>
-
+      <button
+        className="btn-primary"
+        style={{
+          padding: "10px 20px",
+          borderRadius: 10,
+          fontSize: "0.85rem",
+          fontWeight: 600,
+          boxShadow: "0 4px 12px rgba(79, 70, 229, 0.15)"
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleOpenFile();
+        }}
+      >
+        Launch Camera
+      </button>
     </div>
   );
 }
@@ -1841,20 +1868,22 @@ function ProcessingStep({ message }: { message: string }) {
 }
 
 /* ─── REVIEW STEP ─── */
-function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, updateLineItem, addLineItem, removeLineItem, onReset }: {
+function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, updateLineItem, addLineItem, removeLineItem, onReset, onSave, saveLoading }: {
   grnData: GRNData; rawText: string; showRaw: boolean; setShowRaw: (v: boolean) => void;
   updateField: (f: keyof GRNData, v: string) => void;
   updateLineItem: (i: number, f: keyof GRNLineItem, v: string) => void;
   addLineItem: () => void; removeLineItem: (i: number) => void; onReset: () => void;
+  onSave: () => Promise<boolean>; saveLoading: boolean;
 }) {
   const [saved, setSaved] = useState(false);
   const [confirmedFields, setConfirmedFields] = useState<Set<string>>(new Set());
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-    console.log("Saved GRN Data:", grnData);
-    console.log("Confirmed Fields:", Array.from(confirmedFields));
+  const handleSave = async () => {
+    const success = await onSave();
+    if (success) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    }
   };
 
   const headerFields = [
@@ -1932,8 +1961,13 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
             Verify All Fields
           </button>
 
-          <button className="btn-primary" onClick={handleSave} id="save-grn-btn">
-            {saved ? (
+          <button className="btn-primary" onClick={handleSave} disabled={saveLoading} id="save-grn-btn">
+            {saveLoading ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "#fff", animation: "spin 0.9s linear infinite" }} />
+                Saving...
+              </span>
+            ) : saved ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12" />
@@ -2251,8 +2285,13 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
             Scan Another
           </span>
         </button>
-        <button className="btn-primary" onClick={handleSave} id="save-grn-bottom-btn" style={{ padding: "11px 24px" }}>
-          {saved ? (
+        <button className="btn-primary" onClick={handleSave} disabled={saveLoading} id="save-grn-bottom-btn" style={{ padding: "11px 24px" }}>
+          {saveLoading ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "#fff", animation: "spin 0.9s linear infinite" }} />
+              Saving...
+            </span>
+          ) : saved ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -2266,6 +2305,530 @@ function ReviewStep({ grnData, rawText, showRaw, setShowRaw, updateField, update
             </span>
           )}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── SAVED HISTORY DASHBOARD ─── */
+function SavedHistory({ savedGrns, isLoading, onViewDetails, onReset }: {
+  savedGrns: any[]; isLoading: boolean; onViewDetails: (grn: any) => void; onReset: () => void;
+}) {
+  const [search, setSearch] = useState("");
+
+  const filteredGrns = savedGrns.filter((g) => {
+    const data = g.grnData || {};
+    const vendor = (data.vendorName || "").toLowerCase();
+    const grn = (data.grnNumber || "").toLowerCase();
+    const po = (data.poNumber || "").toLowerCase();
+    const q = search.toLowerCase();
+    return vendor.includes(q) || grn.includes(q) || po.includes(q);
+  });
+
+  if (isLoading) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300, gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", border: "3px solid rgba(79,70,229,0.15)", borderTopColor: "#4f46e5", animation: "spin 0.9s linear infinite" }} />
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", fontWeight: 500 }}>Loading saved documents...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ animation: "fade-in 0.3s ease" }}>
+      {/* Dashboard Top bar */}
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <div>
+          <h2 style={{ fontSize: "1.2rem", fontWeight: 800, color: "#0f172a" }}>Scanned History</h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginTop: 2 }}>
+            Manage and view previously saved Goods Receipt Notes ({savedGrns.length})
+          </p>
+        </div>
+        <button className="btn-primary" onClick={onReset} style={{ padding: "8px 16px", borderRadius: 8, fontSize: "0.8rem" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Scan New Document
+          </span>
+        </button>
+      </div>
+
+      {savedGrns.length > 0 && (
+        <div style={{ position: "relative", marginBottom: 24 }}>
+          <input
+            type="text"
+            placeholder="Search by vendor, GRN number, or PO number..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "12px 16px 12px 42px",
+              borderRadius: 12,
+              border: "1.5px solid #cbd5e1",
+              fontSize: "0.88rem",
+              outline: "none",
+              transition: "all 0.2s ease",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
+            }}
+            id="history-search"
+          />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </div>
+      )}
+
+      {filteredGrns.length === 0 ? (
+        <div style={{
+          background: "#ffffff",
+          border: "1.5px solid #e2e8f0",
+          borderRadius: 16,
+          padding: "60px 24px",
+          textAlign: "center",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.02)"
+        }}>
+          <div style={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            background: "#f1f5f9",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#64748b",
+            margin: "0 auto 16px"
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+          </div>
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
+            {savedGrns.length === 0 ? "No saved GRNs found" : "No matching records"}
+          </h3>
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: 20, maxWidth: 320, margin: "0 auto 20px" }}>
+            {savedGrns.length === 0
+              ? "You haven't saved any scanned documents to the database yet. Click the button below to start."
+              : "Try adjusting your search keywords to find the record you are looking for."}
+          </p>
+          {savedGrns.length === 0 && (
+            <button className="btn-primary" onClick={onReset} style={{ padding: "10px 20px", borderRadius: 10 }}>
+              Scan Document
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 20
+        }}>
+          {filteredGrns.map((g) => {
+            const data = g.grnData || {};
+            return (
+              <div
+                key={g.id}
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                  display: "flex",
+                  flexDirection: "column"
+                }}
+                className="history-card"
+              >
+                {/* Visual Image Header */}
+                <div style={{ height: 130, background: "#f8fafc", position: "relative", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                  {g.photoUrl ? (
+                    <img
+                      src={g.photoUrl}
+                      alt="Scanned Document Thumbnail"
+                      style={{ width: "100%", height: "100%", objectFit: "cover", filter: "brightness(0.96)" }}
+                    />
+                  ) : (
+                    <div style={{ color: "#cbd5e1" }}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                    </div>
+                  )}
+                  <div style={{
+                    position: "absolute",
+                    top: 10,
+                    right: 10,
+                    background: "rgba(15,23,42,0.75)",
+                    backdropFilter: "blur(4px)",
+                    color: "#ffffff",
+                    fontSize: "0.65rem",
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 20
+                  }}>
+                    {new Date(g.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" })}
+                  </div>
+                </div>
+
+                {/* Card details body */}
+                <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", flex: 1, gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 800, fontSize: "0.92rem", color: "#0f172a", lineHeight: 1.3, marginBottom: 4, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }} title={data.vendorName || "Unknown Vendor"}>
+                      {data.vendorName || "Unknown Vendor"}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748b", fontSize: "0.78rem" }}>
+                      <span style={{ fontWeight: 600 }}>GRN:</span>
+                      <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>{data.grnNumber || "N/A"}</span>
+                    </div>
+                  </div>
+
+                  {/* Metadata line row */}
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderTop: "1.5px solid #f1f5f9",
+                    paddingTop: 10,
+                    gap: 10
+                  }}>
+                    <div>
+                      <div style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>PO Number</div>
+                      <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#334155" }}>{data.poNumber || "N/A"}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>Total Amount</div>
+                      <div style={{ fontSize: "0.9rem", fontWeight: 800, color: "#4f46e5" }}>
+                        {data.totalAmount ? `₹${data.totalAmount}` : "N/A"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visual view button */}
+                  <button
+                    onClick={() => onViewDetails(g)}
+                    className="btn-secondary"
+                    style={{
+                      width: "100%",
+                      justifyContent: "center",
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                      marginTop: 4
+                    }}
+                  >
+                    View Details
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── SAVED DETAIL MODAL OVERLAY ─── */
+function SavedDetailModal({ grnRecord, onClose }: { grnRecord: any; onClose: () => void }) {
+  const data = grnRecord.grnData || {};
+  const [showRaw, setShowRaw] = useState(false);
+
+  const fields = [
+    { label: "GRN Number", value: data.grnNumber },
+    { label: "GRN Date", value: data.grnDate },
+    { label: "PO Number", value: data.poNumber },
+    { label: "Invoice Number", value: data.invoiceNumber },
+    { label: "Invoice Date", value: data.invoiceDate },
+    { label: "Vendor Name", value: data.vendorName },
+    { label: "Vendor Code", value: data.vendorCode },
+    { label: "Warehouse / Store", value: data.warehouseStore },
+    { label: "Department", value: data.department },
+    { label: "Vehicle Number", value: data.vehicleNumber },
+  ];
+
+  return (
+    <div className="modal-overlay" style={{ zIndex: 100 }} onClick={onClose}>
+      <div
+        className="modal-card animate-fade-in-up"
+        style={{
+          maxWidth: 950,
+          width: "90%",
+          maxHeight: "90vh",
+          padding: 0,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column"
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          padding: "16px 24px",
+          borderBottom: "1px solid #e2e8f0",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: "#ffffff"
+        }}>
+          <div>
+            <span className="badge badge-success" style={{ marginBottom: 4, display: "inline-flex", fontSize: "0.68rem" }}>Saved Record</span>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#0f172a", margin: 0 }}>
+              {data.vendorName || "Saved Goods Receipt Note"}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "#f1f5f9",
+              border: "none",
+              borderRadius: "50%",
+              width: 32,
+              height: 32,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              color: "#64748b",
+              transition: "all 0.2s"
+            }}
+            title="Close Modal"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content Body (Scrollable) */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }} className="modal-body-scroll">
+          {/* Dual Panel Split */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+            gap: 24,
+            marginBottom: 20
+          }}>
+            {/* Left Panel: Photo */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 5, height: 14, borderRadius: 2, background: "#4f46e5" }} />
+                <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "#334155" }}>Document Image</span>
+              </div>
+              <div style={{
+                background: "#f8fafc",
+                border: "1.5px solid #e2e8f0",
+                borderRadius: 14,
+                padding: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 280,
+                maxHeight: 480,
+                overflow: "hidden"
+              }}>
+                {grnRecord.photoUrl ? (
+                  <img
+                    src={grnRecord.photoUrl}
+                    alt="GRN Document Capture"
+                    style={{ width: "100%", maxHeight: 440, objectFit: "contain", borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}
+                  />
+                ) : (
+                  <div style={{ textAlign: "center", color: "#94a3b8" }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8, margin: "0 auto" }}>
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <circle cx="8.5" cy="8.5" r="1.5" />
+                      <polyline points="21 15 16 10 5 21" />
+                    </svg>
+                    <p style={{ fontSize: "0.8rem" }}>No photo saved for this document.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Panel: Fields */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 5, height: 14, borderRadius: 2, background: "#4f46e5" }} />
+                <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "#334155" }}>Header Information</span>
+              </div>
+              <div style={{
+                background: "#ffffff",
+                border: "1.5px solid #e2e8f0",
+                borderRadius: 14,
+                padding: "18px 20px",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                gap: "14px 16px"
+              }}>
+                {fields.map((f, i) => (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>{f.label}</span>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b", wordBreak: "break-all" }}>
+                      {f.value || <em style={{ color: "#cbd5e1", fontWeight: 500 }}>Empty</em>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Line Items Table */}
+          <div style={{ marginTop: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+              <div style={{ width: 5, height: 14, borderRadius: 2, background: "#7c3aed" }} />
+              <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "#334155" }}>Material / Line Items</span>
+            </div>
+            <div className="table-wrapper" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.01)" }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    {["#", "Item Code", "Description", "Unit", "PO Qty", "Rcvd Qty", "Rate", "Amount"].map((h) => (
+                      <th key={h} style={{ whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {!data.lineItems || data.lineItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: "center", padding: "16px", color: "var(--text-muted)", fontSize: "0.8rem" }}>
+                        No line items saved for this GRN.
+                      </td>
+                    </tr>
+                  ) : (
+                    data.lineItems.map((item: any, i: number) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 700, color: "#64748b", width: 40 }}>{item.srNo || i + 1}</td>
+                        <td style={{ fontWeight: 600, color: "#334155" }}>{item.itemCode || "—"}</td>
+                        <td style={{ color: "#1e293b", fontWeight: 500 }}>{item.description || "—"}</td>
+                        <td style={{ color: "#64748b", fontWeight: 600 }}>{item.unit || "—"}</td>
+                        <td style={{ fontWeight: 700, color: "#334155" }}>{item.poQty || "—"}</td>
+                        <td style={{ fontWeight: 700, color: "#10b981" }}>{item.receivedQty || "—"}</td>
+                        <td style={{ color: "#475569", fontWeight: 600 }}>{item.rate ? `₹${item.rate}` : "—"}</td>
+                        <td style={{ fontWeight: 800, color: "#4f46e5" }}>{item.amount ? `₹${item.amount}` : "—"}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Totals & Remarks Block */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: 20,
+            marginTop: 20
+          }}>
+            {/* Remarks */}
+            <div style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: 14,
+              padding: "16px 20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6
+            }}>
+              <span style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase" }}>Remarks / Notes</span>
+              <span style={{ fontSize: "0.85rem", color: "#334155", fontWeight: 600, lineHeight: 1.6 }}>
+                {data.remarks || <em style={{ color: "#cbd5e1", fontWeight: 500 }}>No remarks recorded</em>}
+              </span>
+            </div>
+
+            {/* Totals Summary */}
+            <div style={{
+              background: "#ffffff",
+              border: "1.5px solid #e2e8f0",
+              borderRadius: 14,
+              padding: "16px 20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.76rem", color: "#64748b", fontWeight: 600 }}>Subtotal</span>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#334155" }}>
+                  {data.subTotal ? `₹${data.subTotal}` : "—"}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.76rem", color: "#64748b", fontWeight: 600 }}>Tax / GST</span>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#ef4444" }}>
+                  {data.taxAmount ? `+ ₹${data.taxAmount}` : "—"}
+                </span>
+              </div>
+              <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderTop: "1.5px dashed #e2e8f0",
+                paddingTop: 8,
+                marginTop: 2
+              }}>
+                <span style={{ fontSize: "0.8rem", color: "#0f172a", fontWeight: 800 }}>Grand Total</span>
+                <span style={{ fontSize: "1.1rem", fontWeight: 800, color: "#4f46e5" }}>
+                  {data.totalAmount ? `₹${data.totalAmount}` : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer (Action buttons) */}
+        <div style={{
+          padding: "14px 24px",
+          borderTop: "1px solid #e2e8f0",
+          background: "#f8fafc",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 10
+        }}>
+          {data.rawText && (
+            <button
+              className="btn-secondary"
+              onClick={() => setShowRaw(!showRaw)}
+              style={{ fontSize: "0.8rem", padding: "8px 16px" }}
+            >
+              {showRaw ? "Hide Raw Text" : "View Raw Text"}
+            </button>
+          )}
+          <button
+            className="btn-primary"
+            onClick={onClose}
+            style={{ fontSize: "0.8rem", padding: "8px 24px" }}
+          >
+            Close
+          </button>
+        </div>
+
+        {showRaw && data.rawText && (
+          <div style={{ borderTop: "1px solid #e2e8f0", background: "#1e1e1e", padding: 20, maxHeight: 180, overflowY: "auto" }}>
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: "#10b981", fontSize: "0.74rem", fontFamily: "monospace", lineHeight: 1.6 }}>
+              {data.rawText}
+            </pre>
+          </div>
+        )}
       </div>
     </div>
   );
