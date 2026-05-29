@@ -19,25 +19,17 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Step 1: Check trial scan limit (Max 10)
-    const user = await db.getUser(normalizedEmail);
-    if (user.trialCount >= 10) {
-      return Response.json(
-        { 
-          success: false, 
-          error: 'This email has already exhausted all 10 free trial scans. Please contact sales to unlock full access.' 
-        }, 
-        { status: 400 }
-      );
-    }
+    // Note: login is intentionally NOT gated by scan usage. Authentication and the
+    // purchase flow must always be reachable — otherwise an exhausted user could never
+    // log in to buy more scans. The scan cap is enforced only at scan time (/api/ocr).
 
-    // Step 2: Create OTP
+    // Create OTP
     const otp = await db.createOtp(normalizedEmail);
 
-    // Step 3: Trigger OTP sending
+    // Trigger OTP sending
     const emailResult = await sendOtpEmail(normalizedEmail, otp);
 
-    // Step 4: Return success (with mock code if running in demo fallback mode)
+    // Return success (with mock code if running in demo fallback mode)
     return Response.json({
       success: true,
       message: emailResult.mock 
