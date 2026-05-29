@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
-import { db } from '../../../lib/db';
+import { db, isUnlimitedUser } from '../../../lib/db';
 
 // POST /api/ocr
 // Accepts multipart/form-data with a "file" field (image or PDF) and an optional "language" field
@@ -32,11 +32,11 @@ export async function POST(request: NextRequest) {
     const user = await db.getUser(sessionEmail);
     
     const allowed = user.allowedScans ?? 10;
-    if (user.trialCount >= allowed) {
+    if (!isUnlimitedUser(sessionEmail) && user.trialCount >= allowed) {
       return Response.json(
-        { 
-          success: false, 
-          error: `You have exhausted all your ${allowed} trial scans. Please purchase additional scans to continue.` 
+        {
+          success: false,
+          error: `You have exhausted all your ${allowed} trial scans. Please purchase additional scans to continue.`
         },
         { status: 403 }
       );
@@ -91,14 +91,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    console.log('Preparing Gemini 3.1 Flash multimodal processing...');
+    console.log('Preparing Gemini multimodal processing...');
     
     // Step 1: Read file and convert to base64
     const arrayBuffer = await file.arrayBuffer();
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     
     // Step 2: Set up Gemini model and endpoint
-    const model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-image-preview';
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
     console.log('Sending request to Gemini model:', model);
@@ -219,7 +219,8 @@ Strict Rules:
       jobId: `gemini-${Date.now()}`,
       trialCount: updatedUser.trialCount,
       allowedScans: updatedAllowed,
-      trialsLeft: Math.max(0, updatedAllowed - updatedUser.trialCount)
+      trialsLeft: Math.max(0, updatedAllowed - updatedUser.trialCount),
+      unlimited: isUnlimitedUser(sessionEmail)
     });
 
   } catch (error) {

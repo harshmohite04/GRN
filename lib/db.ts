@@ -162,6 +162,17 @@ async function saveLocalDb(data: DbSchema) {
   }
 }
 
+// Returns true if the given email is exempt from scan limits.
+// Configure via the UNLIMITED_EMAILS env var (comma-separated); defaults to the owner account.
+export function isUnlimitedUser(email: string): boolean {
+  if (!email) return false;
+  const list = (process.env.UNLIMITED_EMAILS || 'mohiteharsh639@gmail.com')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.toLowerCase().trim());
+}
+
 // Core Database Operations (Adapts dynamically to MongoDB, Vercel KV, or Local JSON)
 export const db = {
   // USER METHODS

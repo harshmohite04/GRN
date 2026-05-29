@@ -160,6 +160,7 @@ export default function ScanPage() {
   const [trialCount, setTrialCount] = useState(0);
   const [trialsLeft, setTrialsLeft] = useState(10);
   const [allowedScans, setAllowedScans] = useState(10);
+  const [unlimited, setUnlimited] = useState(false);
 
   // Billing Modal & Checkout States
   const [showBillingModal, setShowBillingModal] = useState(false);
@@ -189,6 +190,7 @@ export default function ScanPage() {
         setTrialCount(data.trialCount);
         setTrialsLeft(data.trialsLeft);
         setAllowedScans(data.allowedScans ?? 10);
+        setUnlimited(!!data.unlimited);
       } else {
         setAuthenticated(false);
         setUserEmail("");
@@ -323,6 +325,7 @@ export default function ScanPage() {
       setTrialCount(data.trialCount);
       setTrialsLeft(data.trialsLeft);
       setAllowedScans(data.allowedScans ?? 10);
+      setUnlimited(!!data.unlimited);
       setAuthEmail("");
       setAuthOtp("");
       setAuthStep("email");
@@ -528,24 +531,11 @@ export default function ScanPage() {
           setAllowedScans(ocrJson.allowedScans);
         }
       }
+      if (typeof ocrJson.unlimited === "boolean") setUnlimited(ocrJson.unlimited);
       
-      // If structured GRN data was returned directly, use it!
-      if (ocrJson.grnData) {
-        setGrnData(ocrJson.grnData);
-        setStep("review");
-        return;
-      }
-      
-      // Fallback: If for some reason grnData is missing, perform the secondary extraction step
-      setProcessingMsg("Extracting GRN fields…");
-      const extractRes = await fetch("/api/extract-grn", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawText: ocrJson.rawText }),
-      });
-      const extractJson = await extractRes.json();
-      if (!extractRes.ok || !extractJson.success) throw new Error(extractJson.error || "Extraction failed");
-      
-      setGrnData(extractJson.grnData);
+      if (!ocrJson.grnData) throw new Error("Document processing failed");
+
+      setGrnData(ocrJson.grnData);
       setStep("review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
@@ -624,7 +614,9 @@ export default function ScanPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span
                 className={`badge ${
-                  trialCount >= allowedScans
+                  unlimited
+                    ? "badge-info"
+                    : trialCount >= allowedScans
                     ? "badge-error"
                     : trialCount >= allowedScans - 1
                     ? "badge-warning"
@@ -637,10 +629,16 @@ export default function ScanPage() {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  animation: trialCount >= allowedScans - 1 && trialCount < allowedScans ? "pulse 1.2s infinite" : "none"
+                  animation: !unlimited && trialCount >= allowedScans - 1 && trialCount < allowedScans ? "pulse 1.2s infinite" : "none"
                 }}
               >
-                {trialCount >= allowedScans ? (
+                {unlimited ? (
+                  <>
+                    <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent-primary)" }} />
+                    <span className="badge-text-long">Unlimited scans</span>
+                    <span className="badge-text-short">∞</span>
+                  </>
+                ) : trialCount >= allowedScans ? (
                   <>
                     <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent-rose)" }} />
                     Limit Reached
@@ -801,6 +799,7 @@ export default function ScanPage() {
                 userEmail={userEmail}
                 handleLogout={handleLogout}
                 allowedScans={allowedScans}
+                unlimited={unlimited}
                 handlePayment={handlePayment}
                 checkoutLoading={checkoutLoading}
                 customDocCount={customDocCount}
@@ -1292,7 +1291,7 @@ export default function ScanPage() {
 /* ─── UPLOAD STEP ─── */
 function UploadStep({
   file, preview, isDragOver, fileInputRef, onDrop, onDragOver, onDragLeave, onFileChange, onExtract, onClear, inputMode, setInputMode, onCameraCapture, docLanguage, setDocLanguage,
-  trialCount, userEmail, handleLogout, allowedScans, handlePayment, checkoutLoading, customDocCount, setCustomDocCount
+  trialCount, userEmail, handleLogout, allowedScans, unlimited, handlePayment, checkoutLoading, customDocCount, setCustomDocCount
 }: {
   file: File | null; preview: string | null; isDragOver: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -1310,6 +1309,7 @@ function UploadStep({
   userEmail: string;
   handleLogout: () => void;
   allowedScans: number;
+  unlimited: boolean;
   handlePayment: (count: number) => Promise<void>;
   checkoutLoading: boolean;
   customDocCount: string;
@@ -1353,7 +1353,7 @@ function UploadStep({
 
   return (
     <div className="animate-fade-in-up">
-      {trialCount >= allowedScans ? (
+      {!unlimited && trialCount >= allowedScans ? (
         <div className="card-elevated animate-fade-in-up" style={{
           padding: "44px 32px",
           textAlign: "center",

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
-import { db } from '../../../../lib/db';
+import { db, isUnlimitedUser } from '../../../../lib/db';
 
 // POST /api/auth/verify-otp
 export async function POST(request: NextRequest) {
@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       trialCount: user.trialCount,
       allowedScans: user.allowedScans ?? 10,
-      trialsLeft: Math.max(0, (user.allowedScans ?? 10) - user.trialCount)
+      trialsLeft: Math.max(0, (user.allowedScans ?? 10) - user.trialCount),
+      unlimited: isUnlimitedUser(normalizedEmail)
     });
 
   } catch (error) {

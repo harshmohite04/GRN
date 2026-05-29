@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
-import { db } from '../../../../lib/db';
+import { db, isUnlimitedUser } from '../../../../lib/db';
 
 // GET /api/auth/session
 // Validates session cookie and returns user authentication state and trial counts
@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
       email: session.email,
       trialCount: user.trialCount,
       allowedScans: user.allowedScans ?? 10,
-      trialsLeft: Math.max(0, (user.allowedScans ?? 10) - user.trialCount)
+      trialsLeft: Math.max(0, (user.allowedScans ?? 10) - user.trialCount),
+      unlimited: isUnlimitedUser(session.email)
     });
 
   } catch (error) {
